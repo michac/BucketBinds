@@ -1,0 +1,7 @@
+# OS / editor cruft
+.DS_Store
+*.swp
+
+# Python scratch (if the luaparser check ever caches)
+__pycache__/
+*.pyc

@@ -1,0 +1,34 @@
+# BucketBinds
+
+A World of Warcraft addon (Retail, Midnight / patch 12.0.7) that does two things
+the game won't:
+
+1. **One-shot ability dump** — sort every ability into a fixed *bucket* and place
+   it into the matching action-bar slot with a consistent keybind, for any spec,
+   in one command. Dump once, tweak by hand, done — no background re-syncing.
+2. **Transactional save/restore** — snapshot your entire keybind + action-bar +
+   macro layout to a named profile and restore it atomically, with a pre-restore
+   backup. (WoW has binding sets and Edit Mode layouts, but no snapshot/rollback.)
+
+The bucket taxonomy is seeded from Bellular's "Midnight Keybinding System" and
+then owned/curated locally.
+
+## Install (via ghaddons)
+
+```bash
+python3 -m ghaddons.cli add     michac/BucketBinds
+python3 -m ghaddons.cli install michac/BucketBinds
+```
+
+Then `/reload` in-game and run `/bb status`.
+
+## Status
+
+Early. `/bb status` works; snapshot/restore (M1) and the dumper (M2) are in
+progress. See the design doc in the companion `wwt-keyboard` workspace
+(`projects/keybinder/project-spec.md`).
+
+## Note
+
+`BucketBinds/Data.lua` is **generated** from a seed in the companion workspace —
+don't hand-edit it. See `CLAUDE.md` for the regenerate + release workflow.
