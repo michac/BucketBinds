@@ -101,3 +101,42 @@ Run after deploying a build (`ghaddons update michac/BucketBinds` → `/reload`)
 Known M1 limitations: restore of `mount`/`pet`/`flyout`/`equipmentset` action
 slots is skip-and-report (spell/item/macro are full-fidelity); the skyriding bar
 (~slots 121–132) may only reflect content while active — verify during the pass.
+
+## Dev-side seed validator (`tool/check_seed_spells.py`, in the parent workspace)
+
+Advisory build-time check: cross-references every distinct seed ability name
+against a wago `SpellName` DB2 dump and reports names with no 12.0.x match
+(typos / Midnight renames). The addon resolves names→IDs at runtime, so this is
+never a hard gate — exit 0 even on misses. Run before shipping a data change:
+
+```bash
+cd tools && uv run python -m wowkb.wago SpellName          # → raw/wago/SpellName.csv
+cd ../projects/keybinder && uv run python tool/check_seed_spells.py
+```
+
+Fix real typos via `Dump.lua`'s `ALIASES` table (non-destructive — `Data.lua` is
+generated and the source `.xlsx` is off-box). Known benign misses that stay
+`unresolved`/`skipped` in-game (no single spell behind them): `Res` (Priest/Monk
+Buff slot), `Poisons` (Rogue), `Protection Stance` (Warrior Stance — an M4 bucket).
+
+## In-game smoke test (M2 — dump)
+
+Run after deploying a build (`ghaddons update michac/BucketBinds` → `/reload`):
+
+1. **Non-form spec** (e.g. Mage/Warlock): `/bb dump` → all 5 bars fill; keys
+   `1 / Q / Shift-1 / Ctrl-Q / …` fire the right abilities; report shows
+   `N/M abilities placed, K bound` (M = the spec's mapped abilities, not a fixed
+   40 — specs map a subset). MultiBars are visible afterward (bar-toggle worked).
+2. **Unresolved path**: a spec with an untalented bucket → that name is listed
+   under `unresolved:` and reported, **not** errored; nothing wrong is placed.
+3. **`/bb undo`** → reverts the dump to the pre-dump layout (M1 auto-backup reuse).
+4. **Combat defer**: `/bb dump` on a target dummy → prints "deferred", then
+   applies automatically on leaving combat.
+5. **Druid** (the form test): `/bb dump` in caster form, then shift to Cat and
+   Bear → the bar-1 abilities appear on both form bars and `1–8` fire them.
+   Confirm the `FORM_BONUS_BARS` offsets (adjust the table if a form's slots are
+   empty) and that the `UPDATE_SHAPESHIFT_FORM` safety hook fills any missed form
+   on first entry. Also spot-check Rogue (Stealth) / Warrior (stances) — uncertain
+   whether they page in 12.0.x; the hook is the backstop.
+6. **Override**: `/bb dump Fire` (current class) and `/bb dump Mage Fire` both
+   resolve; an unknown arg prints the available spec keys.

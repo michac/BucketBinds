@@ -25,11 +25,12 @@ local function report()
   print(("Class: %s. %d saved profile(s). Use " .. KEY .. "/bb help" .. R .. " for commands."):format(class or "?", nProfiles))
 end
 
--- Combat-defer queue: Snapshot.Apply enqueues here when InCombatLockdown();
--- drained on PLAYER_REGEN_ENABLED. Single pending apply (last one wins).
-local pendingApply = nil
-function ns.QueueApply(profile, opts)
-  pendingApply = { profile = profile, opts = opts }
+-- Combat-defer queue: Snapshot.Apply / Dump.Run enqueue a thunk when
+-- InCombatLockdown(); drained on PLAYER_REGEN_ENABLED. Single pending action
+-- (last one wins) — both restore and dump defer through the same drain.
+local pendingAction = nil
+function ns.QueueAction(thunk)
+  pendingAction = thunk
 end
 
 -- ---------------------------------------------------------------------------
@@ -38,6 +39,8 @@ end
 
 local function cmdHelp()
   print(COLOR .. "BucketBinds" .. R .. " commands:")
+  print("  " .. KEY .. "/bb dump" .. R .. " — place + bind your spec's abilities across all 5 bars (auto-backs-up first)")
+  print("  " .. KEY .. "/bb dump <Spec>" .. R .. " or " .. KEY .. "/bb dump <Class> <Spec>" .. R .. " — dump a specific spec")
   print("  " .. KEY .. "/bb save <name>" .. R .. " — capture bindings + bars + macros to a profile")
   print("  " .. KEY .. "/bb restore <name>" .. R .. " — mirror a profile back (auto-backs-up first)")
   print("  " .. KEY .. "/bb undo" .. R .. " — restore the pre-restore auto-backup")
@@ -76,6 +79,23 @@ local function cmdUndo()
   ns.Snapshot.Apply(BucketBindsDB.autobackup, { isUndo = true })
 end
 
+local function cmdDump(rest)
+  if not ns.Dump then print(ERR .. "BucketBinds" .. R .. ": dump module failed to load."); return end
+  local key = ns.Dump.Resolve(rest)
+  if not key then
+    local _, ct = UnitClass("player")
+    if rest == "" then
+      print(ERR .. "BucketBinds" .. R .. ": couldn't detect your spec. Pick one:")
+      for _, k in ipairs(ns.Dump.AvailableKeys(ct)) do print("  " .. KEY .. k .. R) end
+    else
+      print(ERR .. "BucketBinds" .. R .. ": no spec matching '" .. rest .. "'. Available:")
+      for _, k in ipairs(ns.Dump.AvailableKeys()) do print("  " .. KEY .. k .. R) end
+    end
+    return
+  end
+  ns.Dump.Run(key)
+end
+
 local function cmdList()
   local any = false
   for name, p in pairs(BucketBindsDB.profiles) do
@@ -108,6 +128,8 @@ SlashCmdList.BUCKETBINDS = function(msg)
     cmdHelp()
   elseif cmd == "status" then
     report()
+  elseif cmd == "dump" then
+    cmdDump(rest)
   elseif cmd == "save" then
     cmdSave(rest)
   elseif cmd == "restore" then
@@ -134,10 +156,10 @@ f:SetScript("OnEvent", function(_, event)
   if event == "PLAYER_LOGIN" then
     report()
   elseif event == "PLAYER_REGEN_ENABLED" then
-    if pendingApply then
-      local p = pendingApply
-      pendingApply = nil
-      ns.Snapshot.Apply(p.profile, p.opts)
+    if pendingAction then
+      local thunk = pendingAction
+      pendingAction = nil
+      thunk()
     end
   end
 end)

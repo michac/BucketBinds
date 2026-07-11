@@ -2,7 +2,7 @@
 -- bars (slots 1-180) + macros to a named SavedVariables profile.
 --
 -- Capture is read-only and safe anytime. Apply is combat-gated (auto-defers to
--- PLAYER_REGEN_ENABLED via ns.QueueApply, defined in Core.lua) and takes a
+-- PLAYER_REGEN_ENABLED via ns.QueueAction, defined in Core.lua) and takes a
 -- single-level auto-backup into BucketBindsDB.autobackup that drives /bb undo.
 --
 -- Fidelity: bindings = exact mirror, action bars = exact mirror (spell/item/
@@ -219,7 +219,7 @@ function Snapshot.Apply(profile, opts)
   -- Combat guard: can't touch bindings/actions in lockdown. Defer the whole
   -- apply (auto-backup included) to PLAYER_REGEN_ENABLED.
   if InCombatLockdown() then
-    if ns.QueueApply then ns.QueueApply(profile, opts) end
+    if ns.QueueAction then ns.QueueAction(function() Snapshot.Apply(profile, opts) end) end
     say("in combat — restore deferred until you leave combat.")
     return "deferred"
   end

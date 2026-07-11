@@ -24,9 +24,10 @@ Then `/reload` in-game and run `/bb status`.
 
 ## Status
 
-Early. `/bb status` works; snapshot/restore (M1) and the dumper (M2) are in
-progress. See the design doc in the companion `wwt-keyboard` workspace
-(`projects/keybinder/project-spec.md`).
+Working. Snapshot/restore (M1, `/bb save|restore|undo`) and the spec dumper
+(M2, `/bb dump`) are shipped; an in-addon tweak UI (M3) and item/macro
+generation (M4) are next. `/bb help` lists every command. See the design doc in
+the companion `wwt-keyboard` workspace (`projects/keybinder/project-spec.md`).
 
 ## Note
 
