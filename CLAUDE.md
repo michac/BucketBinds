@@ -81,3 +81,23 @@ releases so version tracking is clean). So updating the in-game addon is:
   `wwt-keyboard/knowledge/_meta/game-version.md`). 12.0.7 = `120007`.
 - **Tag = `.toc` version**, prefixed `v` (e.g. `## Version: 0.1.0` → tag `v0.1.0`).
 - SavedVariables: `BucketBindsDB`.
+
+## In-game smoke test (M1 — snapshot/restore)
+
+Run after deploying a build (`ghaddons update michac/BucketBinds` → `/reload`):
+
+1. `/bb save baseline` → `/bb list` shows it with correct binding/action/macro
+   counts.
+2. Rebind a key **and** drag an action to a new slot → `/bb restore baseline` →
+   both revert.
+3. `/bb undo` → returns to the modified state (single-level auto-backup).
+4. Enter combat (target dummy), `/bb restore baseline` → prints "deferred",
+   then applies automatically on leaving combat.
+5. **Druid** (or any form class): put a spell on a Cat-form slot while in caster
+   form, `/bb save`, change it, `/bb restore` → the Cat bar round-trips
+   (validates the 73–120 bonus-bar sweep without shapeshifting).
+6. Confirm a macro-on-bar round-trips (name + body + icon intact).
+
+Known M1 limitations: restore of `mount`/`pet`/`flyout`/`equipmentset` action
+slots is skip-and-report (spell/item/macro are full-fidelity); the skyriding bar
+(~slots 121–132) may only reflect content while active — verify during the pass.

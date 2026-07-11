@@ -2,8 +2,9 @@
 ## Title: BucketBinds
 ## Notes: One-shot bucket-based keybind/bar dumper + transactional profile save/restore.
 ## Author: Michael Christiansen
-## Version: 0.0.1
+## Version: 0.1.0
 ## SavedVariables: BucketBindsDB
 
 Data.lua
+Snapshot.lua
 Core.lua
