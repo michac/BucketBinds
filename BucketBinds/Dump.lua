@@ -389,10 +389,13 @@ local function enumerateCastable()
     local SPELL = Enum.SpellBookItemType and Enum.SpellBookItemType.Spell
     for line = 1, C_SpellBook.GetNumSpellBookSkillLines() do
       local info = C_SpellBook.GetSpellBookSkillLineInfo(line)
-      if info and info.itemIndexOffset and info.numSpellBookItems then
+      -- Skip inactive-spec skill lines (offSpecID set = a spec you're not in);
+      -- their spells sit in the book but aren't castable right now.
+      if info and info.itemIndexOffset and info.numSpellBookItems
+         and (not info.offSpecID or info.offSpecID == 0) then
         for i = info.itemIndexOffset + 1, info.itemIndexOffset + info.numSpellBookItems do
           local it = C_SpellBook.GetSpellBookItemInfo(i, bank)
-          if it and it.spellID and it.name and not it.isPassive
+          if it and it.spellID and it.name and not it.isPassive and not it.isOffSpec
              and (SPELL == nil or it.itemType == SPELL) then
             out[#out + 1] = { id = it.spellID, name = it.name }
           end
