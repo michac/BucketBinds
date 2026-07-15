@@ -523,13 +523,24 @@ function Dump.Test(opts)
     return "cleared"
   end
 
-  -- Probe spell: Recuperate if known, else the first spell the player knows.
-  local id
-  if IsPlayerSpell and IsPlayerSpell(TEST_SPELL) then
+  -- Probe spell: Recuperate — resolved the authoritative way, by NAME in your
+  -- own spellbook (like the dump does), which also catches a talented override
+  -- of the base ID. IsPlayerSpell(baseID) can be false for such spells, so we
+  -- don't gate on it. Fallbacks: the raw ID, then any real castable spell —
+  -- Auto Attack (6603) is excluded so the probe is a genuine ability.
+  local AUTO_ATTACK = 6603
+  local sbMap = buildSpellbookMap()
+  local baseInfo = C_Spell and C_Spell.GetSpellInfo and C_Spell.GetSpellInfo(TEST_SPELL)
+  local wantName = (baseInfo and baseInfo.name) or "Recuperate"
+
+  local id = sbMap[wantName] or sbMap["Recuperate"]
+  if not id and IsPlayerSpell and IsPlayerSpell(TEST_SPELL) then
     id = TEST_SPELL
-  else
-    local first = enumerateCastable()[1]
-    id = first and first.id
+  end
+  if not id then
+    for _, s in ipairs(enumerateCastable()) do
+      if s.id ~= AUTO_ATTACK then id = s.id; break end
+    end
   end
   if not id then
     say(WARN .. "no castable spell found to test with." .. R)
