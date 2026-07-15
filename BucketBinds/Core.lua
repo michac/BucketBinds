@@ -39,8 +39,11 @@ end
 
 local function cmdHelp()
   print(COLOR .. "BucketBinds" .. R .. " commands:")
-  print("  " .. KEY .. "/bb dump" .. R .. " — place + bind your spec's abilities across all 5 bars (auto-backs-up first)")
+  print("  " .. KEY .. "/bb dump" .. R .. " — place + bind your spec's abilities across the bars (auto-backs-up first)")
   print("  " .. KEY .. "/bb dump <Spec>" .. R .. " or " .. KEY .. "/bb dump <Class> <Spec>" .. R .. " — dump a specific spec")
+  print("  " .. KEY .. "/bb dump … --nobind" .. R .. " — place abilities but leave your keybinds untouched")
+  print("  " .. KEY .. "/bb spill" .. R .. " — drop every learned-but-unplaced ability onto the reserve bars (" .. KEY .. "spill clear" .. R .. " to undo)")
+  print("  " .. KEY .. "/bb test" .. R .. " — smoke-test the place+bind path (Recuperate → ALT-0; " .. KEY .. "test clear" .. R .. " to undo)")
   print("  " .. KEY .. "/bb save <name>" .. R .. " — capture bindings + bars + macros to a profile")
   print("  " .. KEY .. "/bb restore <name>" .. R .. " — mirror a profile back (auto-backs-up first)")
   print("  " .. KEY .. "/bb undo" .. R .. " — restore the pre-restore auto-backup")
@@ -81,6 +84,10 @@ end
 
 local function cmdDump(rest)
   if not ns.Dump then print(ERR .. "BucketBinds" .. R .. ": dump module failed to load."); return end
+  -- Strip a --nobind flag anywhere in the args before spec resolution.
+  local opts = {}
+  rest = rest:gsub("%-%-nobind", function() opts.noBind = true; return "" end)
+  rest = rest:gsub("^%s+", ""):gsub("%s+$", "")
   local key = ns.Dump.Resolve(rest)
   if not key then
     local _, ct = UnitClass("player")
@@ -93,7 +100,25 @@ local function cmdDump(rest)
     end
     return
   end
-  ns.Dump.Run(key)
+  ns.Dump.Run(key, opts)
+end
+
+local function cmdSpill(rest)
+  if not ns.Dump or not ns.Dump.Spill then
+    print(ERR .. "BucketBinds" .. R .. ": dump module failed to load."); return
+  end
+  local opts = {}
+  if (rest or ""):lower():match("clear") then opts.clear = true end
+  ns.Dump.Spill(opts)
+end
+
+local function cmdTest(rest)
+  if not ns.Dump or not ns.Dump.Test then
+    print(ERR .. "BucketBinds" .. R .. ": dump module failed to load."); return
+  end
+  local opts = {}
+  if (rest or ""):lower():match("clear") then opts.clear = true end
+  ns.Dump.Test(opts)
 end
 
 local function cmdList()
@@ -130,6 +155,10 @@ SlashCmdList.BUCKETBINDS = function(msg)
     report()
   elseif cmd == "dump" then
     cmdDump(rest)
+  elseif cmd == "spill" then
+    cmdSpill(rest)
+  elseif cmd == "test" then
+    cmdTest(rest)
   elseif cmd == "save" then
     cmdSave(rest)
   elseif cmd == "restore" then

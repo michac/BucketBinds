@@ -20,19 +20,20 @@ milestones live in the **parent project spec**: `../project-spec.md` (in the
 
 ## Relationship to the parent workspace (important)
 
-`Data.lua` is **generated**, not hand-written. Its source is the seed the parent
-workspace curates:
+`Data.lua` is **generated**, not hand-written. Its source is the canonical seed
+JSON the parent workspace curates:
 
 ```
 wwt-keyboard/projects/keybinder/
-  data/bellular-keybinds.seed.json   <- canonical seed (lives in wwt-keyboard)
-  tool/extract_seed.py               <- regenerates BucketBinds/Data.lua HERE
+  data/bellular-keybinds.seed.json   <- CANONICAL seed, hand-edited (lives in wwt-keyboard)
+  tool/gen_data_lua.py               <- regenerates BucketBinds/Data.lua HERE
 ```
 
-To change the ability/keybind data: edit the seed in the parent workspace, run
-`uv run --with openpyxl python tool/extract_seed.py`, and it rewrites
-`BucketBinds/Data.lua` in this repo. Then commit + release here (below).
-**Never hand-edit `Data.lua`.**
+To change the ability/keybind data: edit the **seed JSON** in the parent
+workspace, run `python3 tool/gen_data_lua.py` (rewrites `BucketBinds/Data.lua`
+here; `--check` gates it in CI), then commit + release here (below). **Never
+hand-edit `Data.lua`.** (The Bellular `.xlsx` is a frozen archive —
+`tool/extract_seed.py` is archival-only and no longer feeds this file.)
 
 ## File layout
 
@@ -45,8 +46,8 @@ projects/keybinder/addon/         <- THIS repo root (michac/BucketBinds)
     BucketBinds.toc
     Core.lua                      namespace, slash cmds, load
     Data.lua                      GENERATED from the parent seed
-    Snapshot.lua                  (M1) save/restore   — not yet
-    Dump.lua                      (M2) seed → bars     — not yet
+    Snapshot.lua                  (M1) save/restore
+    Dump.lua                      (M2) seed → bars; (M3) spillover; /bb test
 ```
 
 ## Deploy / release workflow (a plain push does NOT reach the game)
@@ -117,7 +118,7 @@ cd ../projects/keybinder && uv run python tool/check_seed_spells.py
 Fix real typos via `Dump.lua`'s `ALIASES` table (non-destructive — `Data.lua` is
 generated and the source `.xlsx` is off-box). Known benign misses that stay
 `unresolved`/`skipped` in-game (no single spell behind them): `Res` (Priest/Monk
-Buff slot), `Poisons` (Rogue), `Protection Stance` (Warrior Stance — an M4 bucket).
+Buff slot), `Poisons` (Rogue), `Protection Stance` (Warrior Stance — an M5 bucket).
 
 ## In-game smoke test (M2 — dump)
 
@@ -140,3 +141,25 @@ Run after deploying a build (`ghaddons update michac/BucketBinds` → `/reload`)
    whether they page in 12.0.x; the hook is the backstop.
 6. **Override**: `/bb dump Fire` (current class) and `/bb dump Mage Fire` both
    resolve; an unknown arg prints the available spec keys.
+7. **`--nobind`**: change one keybind by hand, then `/bb dump --nobind` → the
+   abilities re-place on the bars but your changed bind is **untouched** and the
+   report says "bindings left unchanged (--nobind)".
+
+## In-game smoke test (M3 — spill) + /bb test
+
+1. **Verify the reserve region first** (the one hardcoded guess): 
+   `/run for i=133,180 do local t,id=GetActionInfo(i); if t then print(i,t,id) end end`
+   — confirm slots **145–168** are Action Bars 6–7 (empty by default). If the
+   range is off on this patch, fix `SPILL_BASE`/`SPILL_COUNT` in `Dump.lua`.
+2. `/bb dump` then `/bb spill` → learned-but-unplaced abilities land on bars 6–7;
+   the report lists each `name (spellID)`. No keybinds are set. Confirm nothing
+   the dump already placed shows up in spill (override-normalization works).
+3. **Idempotent re-run**: park a spell manually on a bar-6 slot, `/bb spill`
+   again → your parked spell is **not** wiped; only the addon's own prior spill
+   slots are cleared/refilled.
+4. **`/bb spill clear`** → the addon's spilled abilities are removed; your parked
+   spell stays.
+5. **`/bb test`** → Recuperate (or a fallback known spell) lands on the freed
+   Left bar and `ALT-0` fires it; report shows `place … OK; bind … OK`.
+   `/bb test clear` reverts both. This is the minimal write-path probe when a
+   dump misbehaves on a new character/patch.

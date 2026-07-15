@@ -1,18 +1,21 @@
 -- BucketBinds — Dump: the M2 payoff. Given the player's class+spec, walk the
--- seed's 40 placeable spell buckets, resolve each bucket's ability name to a
--- runtime spell ID, place it on the fixed action slot the bucket owns, mirror
--- the main bar onto each form/stance bonus bar, and set the key→slot binding —
--- a one-shot "here's a complete, ergonomic keybind layout" dump.
+-- seed's 48 placeable buckets, resolve each bucket's ability name to a runtime
+-- spell ID, place it on the fixed action slot the bucket owns, mirror the main
+-- bar onto each form/stance bonus bar, and set the key→slot binding — a one-shot
+-- "here's a complete, ergonomic keybind layout" dump.
 --
--- Bar model (decided 2026-07-10): direct modifier binds on all-visible stock
--- bars, no paging. Each (bar, slot) maps 1:1 to one absolute action slot + one
+-- Bar model (decided 2026-07-10; re-layout 2026-07-14): direct modifier binds
+-- on all-visible stock bars, no paging, one modifier layer per physical bar —
+-- bar 1 = 12 unmodified keys, bar 2 = Shift, bar 3 = Ctrl, bar 4 = Alt (bar 5
+-- is free). Each (bar, slot) maps 1:1 to one absolute action slot + one
 -- SetBinding command; the seed carries the explicit key per combo.
 --
 -- Combat-gated like Snapshot.Apply (defers via ns.QueueAction). Takes an
 -- auto-backup into BucketBindsDB.autobackup first, so /bb undo reverts a dump.
 --
--- The 12 bar=None buckets (consumable/trinket/racial macros + Stance/Free) are
--- DEFERRED to M4 and reported as "skipped (M4)", never silently dropped.
+-- The Alt-bar item/trinket/racial macro slots + the 4 Stance buckets carry
+-- placeholder names (no single spell); they're reported as "skipped (M5)",
+-- never silently dropped.
 --
 -- All API signatures verified against warcraft.wiki.gg for retail 12.0.x.
 
@@ -67,7 +70,7 @@ local FORM_BONUS_BARS = {
 }
 
 -- Placeholder ability values the seed uses for non-spell buckets. These never
--- resolve to a spell and never count as "unresolved" — they route to the M4
+-- resolve to a spell and never count as "unresolved" — they route to the M5
 -- skip list (macro/summon generation is a separate milestone).
 local PLACEHOLDER = {
   ["Mount"] = true, ["Free"] = true, ["Racial Ability"] = true,
@@ -279,8 +282,11 @@ function Dump.Run(seedKey, opts)
   end
 
   -- 2) Place + bind each spell bucket; mirror bar 1 onto the form bars.
+  -- opts.noBind (from `/bb dump ... --nobind`): place abilities on the bars but
+  -- leave the player's existing keybindings untouched — no SetBinding, no
+  -- SaveBindings. Placement, form-mirror, and the auto-backup/undo still apply.
   local placed, applicable, bound, formMirrored = 0, 0, 0, 0
-  local unresolved, skippedM4, bar1IDs = {}, {}, {}
+  local unresolved, skippedM5, bar1IDs = {}, {}, {}
 
   for _, b in ipairs(ns.SEED.buckets) do
     if b.bar and BAR_MAP[b.bar] then
@@ -296,15 +302,18 @@ function Dump.Run(seedKey, opts)
           unresolved[#unresolved + 1] = name
         end
       elseif name and PLACEHOLDER[name] then
-        skippedM4[b.category] = true -- placeholder sitting on a real bar (Mount)
+        -- placeholder on a real bar (Alt-bar item/trinket/racial macros, Mount)
+        skippedM5[b.category] = true
       end
       -- (name == nil → this spec doesn't use the bucket; silent, not an error)
 
-      -- Bind the key→slot layer regardless: it's stable even when the slot is
+      -- Bind the key→slot layer (unless --nobind): stable even when the slot is
       -- momentarily empty (untalented ability the player may spec into later).
-      local key = normKey(b.keybind)
-      if key and SetBinding(key, BAR_MAP[b.bar].prefix .. b.slot) then
-        bound = bound + 1
+      if not opts.noBind then
+        local key = normKey(b.keybind)
+        if key and SetBinding(key, BAR_MAP[b.bar].prefix .. b.slot) then
+          bound = bound + 1
+        end
       end
 
       -- Mirror the paging main bar onto every form bonus bar.
@@ -319,29 +328,239 @@ function Dump.Run(seedKey, opts)
         end
       end
     elseif b.category then
-      skippedM4[b.category] = true -- bar=None bucket → M4 (macro/stance work)
+      skippedM5[b.category] = true -- bar=None bucket (Stance) → M5 stance work
     end
   end
 
-  -- Persist the bindings once, and stash the bar-1 layout for the self-healing
-  -- shapeshift hook.
-  SaveBindings(GetCurrentBindingSet())
+  -- Persist the bindings once (skipped under --nobind), and stash the bar-1
+  -- layout for the self-healing shapeshift hook.
+  if not opts.noBind then SaveBindings(GetCurrentBindingSet()) end
   BucketBindsDB.lastDump = { classToken = classToken, bar1 = bar1IDs }
 
   -- 3) Report — never silent.
-  say("dumped %s — %d/%d abilities placed, %d bound%s.", seedKey, placed,
-    applicable, bound,
-    (formOffsets and formMirrored > 0) and (" (" .. formMirrored .. " form-mirrored)") or "")
+  say("dumped %s — %d/%d abilities placed, %s.", seedKey, placed, applicable,
+    opts.noBind and "bindings left unchanged (--nobind)"
+      or (bound .. " bound"))
+  if formOffsets and formMirrored > 0 then
+    say("  (%d form-mirrored)", formMirrored)
+  end
   if #unresolved > 0 then
     say(WARN .. "unresolved (%d): %s" .. R, #unresolved, table.concat(unresolved, ", "))
   end
-  local m4 = {}
-  for cat in pairs(skippedM4) do m4[#m4 + 1] = cat end
-  if #m4 > 0 then
-    table.sort(m4)
-    say(WARN .. "skipped (M4 — items/macros/stances): %s" .. R, table.concat(m4, ", "))
+  local m5 = {}
+  for cat in pairs(skippedM5) do m5[#m5 + 1] = cat end
+  if #m5 > 0 then
+    table.sort(m5)
+    say(WARN .. "skipped (M5 — items/macros/stances): %s" .. R, table.concat(m5, ", "))
   end
   say("not what you wanted? " .. "/bb undo" .. " reverts this dump.")
+  return "applied"
+end
+
+-- ---------------------------------------------------------------------------
+-- M3 spillover: surface learned-but-unplaced abilities on a reserve region
+-- ---------------------------------------------------------------------------
+
+-- Reserved spill region: the modern extra action bars (Edit Mode "Action Bar 6"
+-- and "Action Bar 7" = MultiBar5/6). These absolute slot IDs are BEST-EFFORT
+-- and flagged for in-game verification — the 133–180 range has shifted across
+-- expansions. Spill sets NO keybinds, so a wrong base only mis-places (still
+-- visible), never mis-binds. Placement is defensive (empty slots only), so a
+-- wrong guess can't clobber real bars.
+-- @verify-ingame: confirm slots 145–168 map to Action Bars 6–7. In-game:
+--   /run for i=133,180 do local t,id=GetActionInfo(i); if t then print(i,t,id) end end
+local SPILL_BASE, SPILL_COUNT = 145, 24
+
+-- Collapse a talented override to its base spell so a placed override and its
+-- spellbook base count as one. Falls back to the id if the API is unavailable.
+local function normID(id)
+  if not id then return nil end
+  local base = FindBaseSpellByID and FindBaseSpellByID(id)
+  return base or id
+end
+
+-- Every learned, castable, active-spec spell as {id, name}. Skips passives and
+-- non-Spell book entries (FutureSpell / Flyout / PetAction).
+local function enumerateCastable()
+  local out = {}
+  pcall(function()
+    if not (C_SpellBook and C_SpellBook.GetNumSpellBookSkillLines) then return end
+    local bank = Enum.SpellBookSpellBank and Enum.SpellBookSpellBank.Player or 0
+    local SPELL = Enum.SpellBookItemType and Enum.SpellBookItemType.Spell
+    for line = 1, C_SpellBook.GetNumSpellBookSkillLines() do
+      local info = C_SpellBook.GetSpellBookSkillLineInfo(line)
+      if info and info.itemIndexOffset and info.numSpellBookItems then
+        for i = info.itemIndexOffset + 1, info.itemIndexOffset + info.numSpellBookItems do
+          local it = C_SpellBook.GetSpellBookItemInfo(i, bank)
+          if it and it.spellID and it.name and not it.isPassive
+             and (SPELL == nil or it.itemType == SPELL) then
+            out[#out + 1] = { id = it.spellID, name = it.name }
+          end
+        end
+      end
+    end
+  end)
+  return out
+end
+
+-- Absolute slots 1–144 hold every "real" bar (bars 1–6 pages + form/stance
+-- bonus bars); collect the spells sitting there, normalized. This is the
+-- ground-truth "already on a bar" set — includes the dump AND manual placements.
+local function placedSpellSet()
+  local set = {}
+  for slot = 1, 144 do
+    local t, id = GetActionInfo(slot)
+    if t == "spell" and id then set[normID(id)] = true end
+  end
+  return set
+end
+
+-- /bb spill [clear]. Enumerate the active spellbook, subtract what's already on
+-- a bar (override-normalized), and drop the remainder onto the reserve region —
+-- no keybinds; the payoff is visibility + live QA of the seed. Combat-gated.
+function Dump.Spill(opts)
+  opts = opts or {}
+  if InCombatLockdown() then
+    if ns.QueueAction then ns.QueueAction(function() Dump.Spill(opts) end) end
+    say("in combat — spill deferred until you leave combat.")
+    return "deferred"
+  end
+
+  BucketBindsDB.spillSlots = BucketBindsDB.spillSlots or {}
+
+  -- 'clear' subcommand: empty only the slots WE filled, never foreign content.
+  if opts.clear then
+    local n = 0
+    for _, slot in ipairs(BucketBindsDB.spillSlots) do
+      if GetActionInfo(slot) then clearSlot(slot); n = n + 1 end
+    end
+    BucketBindsDB.spillSlots = {}
+    say("cleared %d spilled slot(s).", n)
+    return "cleared"
+  end
+
+  if SetActionBarToggles then SetActionBarToggles(1, 1, 1, 1, 1) end
+
+  -- Clear our previous spill first so a re-run is idempotent — but only OUR
+  -- slots, so we never wipe abilities the player parked on these bars.
+  for _, slot in ipairs(BucketBindsDB.spillSlots) do clearSlot(slot) end
+  BucketBindsDB.spillSlots = {}
+
+  local placed = placedSpellSet()
+
+  -- Candidates = learned castable spells not already on a bar, de-duped by base.
+  local seen, candidates = {}, {}
+  for _, s in ipairs(enumerateCastable()) do
+    local key = normID(s.id)
+    if key and not placed[key] and not seen[key] then
+      seen[key] = true
+      candidates[#candidates + 1] = s
+    end
+  end
+  table.sort(candidates, function(a, b) return a.name < b.name end)
+
+  -- Free slots in the reserve region (defensive: skip any foreign content).
+  local free = {}
+  for i = 0, SPILL_COUNT - 1 do
+    local slot = SPILL_BASE + i
+    if slot <= 180 and not GetActionInfo(slot) then free[#free + 1] = slot end
+  end
+
+  local fi, placedNames, overflow = 1, {}, {}
+  for _, s in ipairs(candidates) do
+    local slot = free[fi]
+    if slot and placeSpell(s.id, slot) then
+      BucketBindsDB.spillSlots[#BucketBindsDB.spillSlots + 1] = slot
+      placedNames[#placedNames + 1] = ("%s (%d)"):format(s.name, s.id)
+      fi = fi + 1
+    else
+      overflow[#overflow + 1] = ("%s (%d)"):format(s.name, s.id)
+    end
+  end
+
+  say("spilled %d unplaced abilit%s onto the reserve bars.", #placedNames,
+    #placedNames == 1 and "y" or "ies")
+  if #placedNames > 0 then say("  %s", table.concat(placedNames, ", ")) end
+  if #overflow > 0 then
+    say(WARN .. "%d didn't fit (%d-slot region full) — listed, not dropped: %s" .. R,
+      #overflow, SPILL_COUNT, table.concat(overflow, ", "))
+  end
+  say("clear them with " .. "/bb spill clear" .. ".")
+  return "applied"
+end
+
+-- ---------------------------------------------------------------------------
+-- /bb test: minimal place+bind smoke test (no full dump)
+-- ---------------------------------------------------------------------------
+
+-- Recuperate — a universal level-90 Midnight ability every character learns —
+-- is the probe spell. Placed on the freed "Left" bar (MultiBar4 button 1, abs
+-- slot 37) with a known-good binding command, and bound to ALT-0 (rarely used).
+-- Non-destructive: captures + restores whatever it displaces via /bb test clear.
+local TEST_SPELL = 1231418            -- Recuperate
+local TEST_SLOT  = 37                 -- MULTIACTIONBAR4BUTTON1 (freed bar 5)
+local TEST_CMD   = "MULTIACTIONBAR4BUTTON1"
+local TEST_KEY   = "ALT-0"
+
+function Dump.Test(opts)
+  opts = opts or {}
+  if InCombatLockdown() then
+    if ns.QueueAction then ns.QueueAction(function() Dump.Test(opts) end) end
+    say("in combat — test deferred until you leave combat.")
+    return "deferred"
+  end
+
+  -- 'clear' subcommand: restore whatever the test displaced.
+  if opts.clear then
+    local prev = BucketBindsDB.testBackup
+    if not prev then say("nothing to clear (no test run yet)."); return end
+    clearSlot(TEST_SLOT)
+    if prev.action then placeSpell(prev.action, TEST_SLOT) end
+    SetBinding(TEST_KEY, prev.binding) -- prev.binding nil → unbinds the key
+    SaveBindings(GetCurrentBindingSet())
+    BucketBindsDB.testBackup = nil
+    say("test reverted — slot %d and %s restored.", TEST_SLOT, TEST_KEY)
+    return "cleared"
+  end
+
+  -- Probe spell: Recuperate if known, else the first spell the player knows.
+  local id
+  if IsPlayerSpell and IsPlayerSpell(TEST_SPELL) then
+    id = TEST_SPELL
+  else
+    local first = enumerateCastable()[1]
+    id = first and first.id
+  end
+  if not id then
+    say(WARN .. "no castable spell found to test with." .. R)
+    return
+  end
+  local info = C_Spell and C_Spell.GetSpellInfo and C_Spell.GetSpellInfo(id)
+  local name = (info and info.name) or ("spell " .. id)
+
+  if SetActionBarToggles then SetActionBarToggles(1, 1, 1, 1, 1) end
+
+  -- Back up what we're about to displace (non-destructive).
+  local pt, pid = GetActionInfo(TEST_SLOT)
+  local prevBind = GetBindingAction and GetBindingAction(TEST_KEY)
+  BucketBindsDB.testBackup = {
+    action  = (pt == "spell") and pid or nil,
+    binding = (prevBind and prevBind ~= "") and prevBind or nil,
+  }
+
+  clearSlot(TEST_SLOT)
+  local okPlace = placeSpell(id, TEST_SLOT)
+  local okBind  = SetBinding(TEST_KEY, TEST_CMD) and true or false
+  if okBind then SaveBindings(GetCurrentBindingSet()) end
+
+  say("test — place %s on slot %d: %s; bind %s→%s: %s.", name, TEST_SLOT,
+    okPlace and "OK" or ERR .. "FAIL" .. R, TEST_KEY, TEST_CMD,
+    okBind and "OK" or ERR .. "FAIL" .. R)
+  if okPlace and okBind then
+    say("press " .. TEST_KEY .. " to fire it; revert with " .. "/bb test clear" .. ".")
+  else
+    say(WARN .. "the write path isn't fully working on this character/patch." .. R)
+  end
   return "applied"
 end
 
@@ -361,7 +580,7 @@ local function onShapeshift()
   local offset = GetBonusBarOffset and GetBonusBarOffset()
   if not offset or offset <= 0 then return end
   local base = 1 + (5 + offset) * 12
-  for s = 1, 8 do
+  for s = 1, 12 do -- bar 1 holds 12 buckets (unmod layer); form bars are 12 slots
     local absSlot = base + (s - 1)
     if absSlot >= 1 and absSlot <= 180 and not GetActionInfo(absSlot) then
       placeSpell(dump.bar1[s], absSlot)
