@@ -69,6 +69,17 @@ local FORM_BONUS_BARS = {
   PRIEST  = { 1 },       -- Shadowform (if it pages in 12.0.x)
 }
 
+-- Classes whose contextual ALT+1..8 row is the PET bar (BONUSACTIONBUTTON). Every
+-- other class either uses the STANCE bar (detected at runtime via
+-- GetNumShapeshiftForms) or has neither. Binding pet keys for a class/spec that
+-- isn't currently pet'd is harmless — the bar just stays empty until a pet is out.
+-- MAGE is deliberately omitted: only Frost *might* have a controllable pet bar in
+-- 12.0.7 (uncertain), so we don't bind an empty pet row for all three specs on a
+-- guess. Add MAGE = true here if Frost's elemental turns out to want it.
+local PET_CLASS = {
+  HUNTER = true, WARLOCK = true, DEATHKNIGHT = true,
+}
+
 -- Placeholder ability values the seed uses for non-spell buckets. These never
 -- resolve to a spell and never count as "unresolved" — they route to the M5
 -- skip list (macro/summon generation is a separate milestone).
@@ -346,6 +357,35 @@ function Dump.Run(seedKey, opts)
     end
   end
 
+  -- Contextual bar (pet OR stance) → ALT+1..8. These aren't action slots — they
+  -- are their own binding namespaces (BONUSACTIONBUTTON / SHAPESHIFTBUTTON) that
+  -- the game auto-populates, so we only bind, never place. A class has a pet bar
+  -- OR a stance bar (never both), detected at runtime: shapeshift forms win, else
+  -- a pet class. ALT+N the active bar doesn't fill is cleared, so this row is
+  -- owned wholesale by the contextual bar (was Trinket/Racial/Free, now vacated).
+  -- @verify-ingame: 12.0.7 command names + per-class button counts.
+  local ctxMsg
+  if not opts.noBind then
+    local forms = GetNumShapeshiftForms and GetNumShapeshiftForms() or 0
+    local prefix, n
+    if forms > 0 then
+      prefix, n = "SHAPESHIFTBUTTON", math.min(forms, 8)
+      ctxMsg = ("ALT+1–%d → stance/form bar"):format(n)
+    elseif PET_CLASS[classToken] then
+      prefix, n = "BONUSACTIONBUTTON", 8
+      ctxMsg = "ALT+1–8 → pet bar"
+    else
+      ctxMsg = "ALT+1–8 left free (no pet/stance bar for this class)"
+    end
+    for i = 1, 8 do
+      if prefix and i <= n then
+        SetBinding("ALT-" .. i, prefix .. i)
+      else
+        SetBinding("ALT-" .. i) -- clear: this row belongs to the contextual bar
+      end
+    end
+  end
+
   -- Persist the bindings once (skipped under --nobind), and stash the bar-1
   -- layout for the self-healing shapeshift hook.
   if not opts.noBind then SaveBindings(GetCurrentBindingSet()) end
@@ -358,6 +398,7 @@ function Dump.Run(seedKey, opts)
   if formOffsets and formMirrored > 0 then
     say("  (%d form-mirrored)", formMirrored)
   end
+  if ctxMsg then say("  %s", ctxMsg) end
   if #unresolved > 0 then
     say(WARN .. "unresolved (%d): %s" .. R, #unresolved, table.concat(unresolved, ", "))
   end
