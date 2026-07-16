@@ -80,16 +80,22 @@ local PLACEHOLDER = {
 }
 
 -- keybind notation → SetBinding key string. One optional modifier
--- (S/C/A → SHIFT/CTRL/ALT) + one digit/letter. "S1"→"SHIFT-1", "CQ"→"CTRL-Q",
--- "AV"→"ALT-V", "Z"→"Z".
+-- (S/C/A → SHIFT/CTRL/ALT) + one digit/letter/mouse-token. "S1"→"SHIFT-1",
+-- "CQ"→"CTRL-Q", "AV"→"ALT-V", "Z"→"Z". Mouse tokens expand: "M4"→"BUTTON4",
+-- "SM3"→"SHIFT-BUTTON3", "SMU"→"SHIFT-MOUSEWHEELUP". Mouse buttons M3/M4/M5 =
+-- middle/side1/side2 (BUTTON3/4/5); MU/MD = wheel up/down (only ever modified —
+-- bare wheel is reserved for camera zoom, so the seed only uses S/C/A + MU/MD).
 local MODIFIER = { S = "SHIFT-", C = "CTRL-", A = "ALT-" }
+local MOUSE = {
+  M3 = "BUTTON3", M4 = "BUTTON4", M5 = "BUTTON5",
+  MU = "MOUSEWHEELUP", MD = "MOUSEWHEELDOWN",
+}
 local function normKey(kb)
   if not kb or kb == "" then return nil end
   local pre = MODIFIER[kb:sub(1, 1)]
-  if #kb > 1 and pre then
-    return pre .. kb:sub(2)
-  end
-  return kb
+  local rest = (#kb > 1 and pre) and kb:sub(2) or kb
+  local prefix = (rest ~= kb) and pre or ""
+  return prefix .. (MOUSE[rest] or rest)
 end
 
 -- ---------------------------------------------------------------------------
@@ -310,8 +316,16 @@ function Dump.Run(seedKey, opts)
       -- Bind the key→slot layer (unless --nobind): stable even when the slot is
       -- momentarily empty (untalented ability the player may spec into later).
       if not opts.noBind then
+        local cmd = BAR_MAP[b.bar].prefix .. b.slot
+        -- Free any keys currently bound to this managed slot before setting the
+        -- seed key, so relocating a bucket (e.g. Personal Defensive 1 from Z to
+        -- BUTTON5) actually vacates the old key instead of leaving it as a stale
+        -- duplicate binding. Enforces the layout's 1:1 "one key per managed slot".
+        local k1, k2 = GetBindingKey(cmd)
+        if k1 then SetBinding(k1) end
+        if k2 then SetBinding(k2) end
         local key = normKey(b.keybind)
-        if key and SetBinding(key, BAR_MAP[b.bar].prefix .. b.slot) then
+        if key and SetBinding(key, cmd) then
           bound = bound + 1
         end
       end
@@ -418,9 +432,20 @@ local function placedSpellSet()
   return set
 end
 
+-- Noise both the overflow ring and spill suppress — auto-attack, wand Shoot,
+-- battle-pet management, etc. The seed's excludeSpells table is keyed by spellID
+-- (raw and/or base) and/or exact name; check all three so a talented override or
+-- a name-only entry still matches.
+local function isExcluded(id, base, name)
+  local ex = ns.SEED and ns.SEED.excludeSpells
+  if not ex then return false end
+  return (ex[id] or (base and ex[base]) or (name and ex[name])) and true or false
+end
+
 -- /bb spill [clear]. Enumerate the active spellbook, subtract what's already on
--- a bar (override-normalized), and drop the remainder onto the reserve region —
--- no keybinds; the payoff is visibility + live QA of the seed. Combat-gated.
+-- a bar (override-normalized) and the excludeSpells noise, and drop the remainder
+-- onto the reserve region — no keybinds; the payoff is visibility + live QA of the
+-- seed. Combat-gated.
 function Dump.Spill(opts)
   opts = opts or {}
   if InCombatLockdown() then
@@ -455,7 +480,8 @@ function Dump.Spill(opts)
   local seen, candidates = {}, {}
   for _, s in ipairs(enumerateCastable()) do
     local key = normID(s.id)
-    if key and not placed[key] and not seen[key] then
+    if key and not placed[key] and not seen[key]
+       and not isExcluded(s.id, key, s.name) then
       seen[key] = true
       candidates[#candidates + 1] = s
     end
@@ -490,6 +516,67 @@ function Dump.Spill(opts)
   end
   say("clear them with " .. "/bb spill clear" .. ".")
   return "applied"
+end
+
+-- ---------------------------------------------------------------------------
+-- /bb ring [clear]: hand the overflow set to OPie as one addon-owned ring
+-- ---------------------------------------------------------------------------
+
+-- Same computed set as /bb spill (castable, learned, not on a bar, not excluded),
+-- but the destination is an OPie radial instead of the reserve bars. Uses OPie's
+-- public CustomRings:SetExternalRing (runtime-callable, addon-owned) — so the ring
+-- is regenerated per spec on demand, not user-edited. No bars, no keybinds, and no
+-- combat guard (building a ring is not a protected action). No-ops cleanly when
+-- OPie isn't loaded (declared ## OptionalDeps: OPie).
+-- @verify-ingame: confirm SetExternalRing accepts bare {id=<spellID>} slices and
+-- that our _u tokens don't collide with OPie's own; adjust to macrotext
+-- ("/cast {{spell:<id>}}") slices if bare spell ids don't resolve.
+local RING_NAME = "BB_Overflow"
+
+function Dump.Ring(opts)
+  opts = opts or {}
+  local CR = OPie and OPie.CustomRings
+  if not (CR and CR.SetExternalRing) then
+    say(WARN .. "OPie not detected — /bb ring needs OPie (its CustomRings API) loaded." .. R)
+    return "no-opie"
+  end
+
+  if opts.clear then
+    CR:SetExternalRing(RING_NAME, false) -- false retires the ring
+    say("removed the OPie overflow ring.")
+    return "cleared"
+  end
+
+  local placed = placedSpellSet()
+  local seen, cand = {}, {}
+  for _, s in ipairs(enumerateCastable()) do
+    local key = normID(s.id)
+    if key and not placed[key] and not seen[key]
+       and not isExcluded(s.id, key, s.name) then
+      seen[key] = true
+      cand[#cand + 1] = { id = s.id, key = key, name = s.name }
+    end
+  end
+  table.sort(cand, function(a, b) return a.name < b.name end)
+
+  if #cand == 0 then
+    CR:SetExternalRing(RING_NAME, false)
+    say("overflow ring empty (nothing castable is unplaced + non-excluded) — ring cleared.")
+    return "empty"
+  end
+
+  -- Ring descriptor = array of slices + named ring fields. Each slice's _u token
+  -- is derived from the base spellID so re-runs reproduce identical tokens
+  -- (idempotent update-in-place; OPie hard-errors on duplicate/missing tokens).
+  local desc = { name = "Overflow", _u = "BBov", v = 1 }
+  for _, c in ipairs(cand) do
+    desc[#desc + 1] = { id = c.id, _u = "s" .. c.key }
+  end
+  CR:SetExternalRing(RING_NAME, desc)
+
+  say("built OPie overflow ring with %d abilit%s — bind its open-key in OPie's options.",
+    #cand, #cand == 1 and "y" or "ies")
+  return "ok"
 end
 
 -- ---------------------------------------------------------------------------

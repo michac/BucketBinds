@@ -43,6 +43,7 @@ local function cmdHelp()
   print("  " .. KEY .. "/bb dump <Spec>" .. R .. " or " .. KEY .. "/bb dump <Class> <Spec>" .. R .. " — dump a specific spec")
   print("  " .. KEY .. "/bb dump … --nobind" .. R .. " — place abilities but leave your keybinds untouched")
   print("  " .. KEY .. "/bb spill" .. R .. " — drop every learned-but-unplaced ability onto the reserve bars (" .. KEY .. "spill clear" .. R .. " to undo)")
+  print("  " .. KEY .. "/bb ring" .. R .. " — send that same overflow set to an OPie ring instead (needs OPie; " .. KEY .. "ring clear" .. R .. " to remove)")
   print("  " .. KEY .. "/bb test" .. R .. " — smoke-test the place+bind path (Recuperate → ALT-0; " .. KEY .. "test clear" .. R .. " to undo)")
   print("  " .. KEY .. "/bb diagnostics" .. R .. " — read-only resolution/placement report for the active spec (accumulates per char/spec; " .. KEY .. "diagnostics clear" .. R .. " wipes the store)")
   print("  " .. KEY .. "/bb save <name>" .. R .. " — capture bindings + bars + macros to a profile")
@@ -113,6 +114,15 @@ local function cmdSpill(rest)
   ns.Dump.Spill(opts)
 end
 
+local function cmdRing(rest)
+  if not ns.Dump or not ns.Dump.Ring then
+    print(ERR .. "BucketBinds" .. R .. ": dump module failed to load."); return
+  end
+  local opts = {}
+  if (rest or ""):lower():match("clear") then opts.clear = true end
+  ns.Dump.Ring(opts)
+end
+
 local function cmdTest(rest)
   if not ns.Dump or not ns.Dump.Test then
     print(ERR .. "BucketBinds" .. R .. ": dump module failed to load."); return
@@ -167,6 +177,8 @@ SlashCmdList.BUCKETBINDS = function(msg)
     cmdDump(rest)
   elseif cmd == "spill" then
     cmdSpill(rest)
+  elseif cmd == "ring" then
+    cmdRing(rest)
   elseif cmd == "test" then
     cmdTest(rest)
   elseif cmd == "diagnostics" or cmd == "diag" then
