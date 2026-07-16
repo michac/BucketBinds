@@ -163,3 +163,31 @@ Run after deploying a build (`ghaddons update michac/BucketBinds` → `/reload`)
    Left bar and `ALT-0` fires it; report shows `place … OK; bind … OK`.
    `/bb test clear` reverts both. This is the minimal write-path probe when a
    dump misbehaves on a new character/patch.
+
+## In-game smoke test (M3.1 — /bb diagnostics)
+
+`/bb diagnostics` is a **read-only** report (no `PlaceAction`/`SetBinding` — safe
+in combat) that classifies every seed bucket for the **active spec**, reads the
+bars back, and lists castable abilities no bucket covers. It writes into
+`BucketBindsDB.diagnostics[<char>][<spec>]` — **account-level** SavedVariables, so
+runs **accumulate** across specs and characters (merge, never wipe). It flushes
+to disk only on `/reload`/logout; the `wowkb.diagnostics` Python reader parses it
+off the WSL mount.
+
+1. `/bb dump` then `/bb diagnostics` → chat prints a headline count line for the
+   `char / spec` slot just written; any `unresolved` names list in WARN (seed
+   bugs) and any `placementIssues` list as `category (issue)`. Footer names how
+   many `<char>/<spec>` reports are stored.
+2. **Accumulation pass**: for a character with 3 specs — switch spec, `/bb dump`,
+   `/bb diagnostics` (×3) — then `/reload`. Hop to a second character and repeat.
+   A char switch logs out (auto-flush); the single `/reload` per character is the
+   flush the reader needs.
+3. `/reload`, then from `tools/`: `uv run python -m wowkb.diagnostics` →
+   **all** stored `<char>/<spec>` reports render with counts + the
+   bugs/skips/gaps/mismatch sections. `--character <name>` / `--spec <name>`
+   filter to one; `--json` dumps the raw tree.
+4. **Merge, don't wipe**: re-run `/bb diagnostics` on ONE spec → `/reload` → the
+   reader shows that slot's `reviewed` time refreshed while the others are
+   retained. `/bb diagnostics clear` empties the whole store.
+5. **No-seed spec**: a spec with no seed key still records `castableTotal` +
+   `unmapped` (all castable) + empty buckets with a "no seed for …" note.

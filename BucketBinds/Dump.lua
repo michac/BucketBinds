@@ -579,6 +579,254 @@ function Dump.Test(opts)
 end
 
 -- ---------------------------------------------------------------------------
+-- /bb diagnostics: honest, machine-readable resolution + placement report
+-- ---------------------------------------------------------------------------
+
+-- Turns "some abilities don't show up after a dump" into a concrete report. For
+-- the ACTIVE spec it classifies every seed bucket (unresolved / resolved-known /
+-- resolved-unknown / placeholder), reads the live bars back to see which
+-- resolved-known abilities actually landed, and lists castable abilities no seed
+-- bucket covers ("the gaps"). The result is written into
+-- BucketBindsDB.diagnostics[<char>][<spec>].
+--
+-- Storage accumulates: BucketBindsDB is ACCOUNT-level SavedVariables (one file
+-- shared by every character), so each run MERGES into its char/spec slot and
+-- never wipes the table — run all 3 specs of a character, hop to another, and
+-- all reports collect in one BucketBinds.lua. SavedVariables only flush to disk
+-- on /reload or logout, so the user reloads once per character before the
+-- wowkb.diagnostics reader can parse them off the WSL mount.
+--
+-- READ-ONLY: unlike Dump.Run/Spill/Test it touches NO protected API (no
+-- PlaceAction / SetBinding / PickupSpell / SetActionBarToggles) — only
+-- unprotected reads plus a saved-variable write — so it needs no
+-- InCombatLockdown() guard and is safe to run mid-fight to inspect a dump.
+function Dump.Diagnostics(opts)
+  opts = opts or {}
+  BucketBindsDB.diagnostics = BucketBindsDB.diagnostics or {}
+
+  -- 'clear' subcommand: wipe the whole store (stale-entry cleanup).
+  if opts.clear then
+    local n = 0
+    for _, byChar in pairs(BucketBindsDB.diagnostics) do
+      for _ in pairs(byChar) do n = n + 1 end
+    end
+    BucketBindsDB.diagnostics = {}
+    say("cleared %d stored diagnostics report(s).", n)
+    return "cleared"
+  end
+
+  -- Identity + active spec. GetSpecialization() can be nil for a beat right
+  -- after a spec swap — bail rather than write a half-report.
+  local charName = UnitName("player") or "?"
+  local realm = (GetRealmName and GetRealmName() or "?"):gsub("%s+", "")
+  local charKey = charName .. "-" .. realm
+  local _, classToken = UnitClass("player")
+  local classDisplay = CLASS_DISPLAY[classToken] or classToken or "?"
+
+  local specIdx = GetSpecialization and GetSpecialization()
+  if not specIdx then
+    say(WARN .. "no active specialization detected (mid-swap?) — try again in a moment." .. R)
+    return
+  end
+  local specID, specName = GetSpecializationInfo(specIdx)
+  specName = specName or ("spec " .. tostring(specIdx))
+
+  local seedKey = Dump.ResolveSpec(classToken, specName)
+  local spec = seedKey and ns.SEED and ns.SEED.specs[seedKey] or nil
+
+  -- Precompute the castable/known model once (same helpers the dump uses).
+  local sbMap = buildSpellbookMap()
+  local castable = enumerateCastable()
+  local castByNorm, castByName = {}, {}
+  for _, s in ipairs(castable) do
+    local nk = normID(s.id)
+    if nk then castByNorm[nk] = s end
+    castByName[s.name] = s.id
+  end
+
+  local report = {
+    meta = {
+      time = time and time() or 0,
+      char = charKey,
+      classToken = classToken,
+      classDisplay = classDisplay,
+      specID = specID,
+      specName = specName,
+      seedKey = seedKey,
+      addonVersion = (C_AddOns and C_AddOns.GetAddOnMetadata
+        and C_AddOns.GetAddOnMetadata(ADDON, "Version")) or "?",
+      interface = select(4, GetBuildInfo()),
+      build = (GetBuildInfo()),
+    },
+    summary = {
+      castableTotal = #castable, seedPlaceable = 0, resolvedKnown = 0,
+      resolvedUnknown = 0, unresolved = 0, placeholders = 0,
+      onBar = 0, placementIssues = 0, unmapped = 0,
+    },
+    buckets = {},
+    unmapped = {},
+    placementIssues = {},
+  }
+  local S = report.summary
+  local seedMapped = {} -- normID → true for every resolvable bucket (known or not)
+
+  if spec then
+    for _, b in ipairs(ns.SEED.buckets) do
+      -- In Data.lua bar/slot are numbers, so no tonumber (matches Dump.Run).
+      if type(b.bar) == "number" and BAR_MAP[b.bar] then
+        local name = spec[b.category]
+        if name ~= nil then -- name == nil → this spec doesn't use the bucket
+          local class, id, nk, known
+          if PLACEHOLDER[name] then
+            class = "placeholder"
+            S.placeholders = S.placeholders + 1
+          else
+            S.seedPlaceable = S.seedPlaceable + 1
+            id = resolveSpellID(name, sbMap)
+            if id == nil then
+              -- GetSpellInfo resolves ANY client-known name; nil = the seed
+              -- string is wrong → a seed drift/typo BUG.
+              class = "unresolved"
+              S.unresolved = S.unresolved + 1
+            else
+              nk = normID(id)
+              seedMapped[nk] = true
+              -- Spellbook membership (by NAME and by normID) is the primary
+              -- "known" signal — it's the only one that handles talented
+              -- overrides. IsPlayerSpell/IsSpellKnown are corroborating only.
+              known = (castByName[name] ~= nil)
+                or (nk ~= nil and castByNorm[nk] ~= nil)
+                or (IsPlayerSpell and IsPlayerSpell(id))
+                or (IsSpellKnown and IsSpellKnown(id)) or false
+              known = known and true or false
+              if known then
+                class = "resolved-known"
+                S.resolvedKnown = S.resolvedKnown + 1
+              else
+                class = "resolved-unknown" -- untalented / not learned (expected)
+                S.resolvedUnknown = S.resolvedUnknown + 1
+              end
+            end
+          end
+
+          local absSlot = BAR_MAP[b.bar].base + (b.slot - 1)
+          local rec = {
+            category = b.category, bar = b.bar, slot = b.slot, absSlot = absSlot,
+            key = normKey(b.keybind), name = name, class = class,
+            spellID = id, normID = nk, known = known,
+          }
+          report.buckets[#report.buckets + 1] = rec
+
+          -- Placement read-back for resolved-known buckets only (the ones that
+          -- SHOULD have landed on a bar). Compare via normID on both sides.
+          if class == "resolved-known" then
+            local at, aid = GetActionInfo(absSlot)
+            local issue
+            if not at then
+              issue = "empty"
+            elseif at ~= "spell" then
+              issue = "wrong-type"
+            elseif normID(aid) ~= nk then
+              issue = "wrong-spell"
+            end
+            if issue then
+              S.placementIssues = S.placementIssues + 1
+              local aname
+              if aid and C_Spell and C_Spell.GetSpellInfo then
+                local ai = C_Spell.GetSpellInfo(aid)
+                aname = ai and ai.name
+              end
+              report.placementIssues[#report.placementIssues + 1] = {
+                category = b.category, absSlot = absSlot,
+                intendedID = id, intendedName = name,
+                issue = issue, actualType = at, actualID = aid, actualName = aname,
+              }
+            else
+              S.onBar = S.onBar + 1
+            end
+
+            -- Secondary: probe the form/stance mirror slots (own sub-field, NOT
+            -- in the main count) so we can see if bar-1 mirroring landed too.
+            if b.bar == 1 then
+              local offsets = FORM_BONUS_BARS[classToken]
+              if offsets then
+                local mirror = {}
+                for _, off in ipairs(offsets) do
+                  local ms = 1 + (5 + off) * 12 + (b.slot - 1)
+                  local mt, mid = GetActionInfo(ms)
+                  mirror[#mirror + 1] = {
+                    absSlot = ms,
+                    ok = (mt == "spell" and normID(mid) == nk) and true or false,
+                  }
+                end
+                rec.formMirror = mirror
+              end
+            end
+          end
+        end
+      end
+    end
+  end
+
+  -- Unmapped ("the gaps"): castable spells no resolvable seed bucket covers,
+  -- deduped by normID, sorted by name. Same pattern as Dump.Spill but
+  -- subtracting the seed-model set instead of the current bar state (so like
+  -- Spill it does NOT filter Auto-Attack/professions — those legitimately are
+  -- castable-and-unmapped).
+  local seen, unmapped = {}, {}
+  for _, s in ipairs(castable) do
+    local nk = normID(s.id)
+    if nk and not seedMapped[nk] and not seen[nk] then
+      seen[nk] = true
+      unmapped[#unmapped + 1] = { id = s.id, name = s.name }
+    end
+  end
+  table.sort(unmapped, function(a, b) return a.name < b.name end)
+  report.unmapped = unmapped
+  S.unmapped = #unmapped
+
+  -- Accumulate into diagnostics[charKey][specName] (merge, never wipe).
+  local byChar = BucketBindsDB.diagnostics[charKey] or {}
+  byChar[specName] = report
+  BucketBindsDB.diagnostics[charKey] = byChar
+
+  -- Chat summary.
+  if not spec then
+    say("no seed for %s/%s — recorded castableTotal=%d, %d unmapped (all castable), empty buckets.",
+      classDisplay, specName, S.castableTotal, S.unmapped)
+  else
+    say("diagnostics %s / %s — %d castable; seed: %d known / %d untalented / %d unresolved / %d placeholder; %d on-bar, %d placement issue(s), %d unmapped.",
+      charKey, specName, S.castableTotal, S.resolvedKnown, S.resolvedUnknown,
+      S.unresolved, S.placeholders, S.onBar, S.placementIssues, S.unmapped)
+  end
+  if S.unresolved > 0 then
+    local names = {}
+    for _, bk in ipairs(report.buckets) do
+      if bk.class == "unresolved" then names[#names + 1] = bk.name end
+    end
+    say(WARN .. "unresolved seed names (%d — likely seed bugs): %s" .. R,
+      S.unresolved, table.concat(names, ", "))
+  end
+  if S.placementIssues > 0 then
+    local its = {}
+    for _, pi in ipairs(report.placementIssues) do
+      its[#its + 1] = ("%s (%s)"):format(pi.category, pi.issue)
+    end
+    say(WARN .. "placement issues (%d): %s" .. R, S.placementIssues, table.concat(its, ", "))
+  end
+
+  -- Footer: how many reports are now stored + the next step.
+  local nChar, nReports = 0, 0
+  for _, bc in pairs(BucketBindsDB.diagnostics) do
+    nChar = nChar + 1
+    for _ in pairs(bc) do nReports = nReports + 1 end
+  end
+  say("%d report(s) across %d character(s) stored. /reload, then run: uv run python -m wowkb.diagnostics",
+    nReports, nChar)
+  return "recorded"
+end
+
+-- ---------------------------------------------------------------------------
 -- Self-healing form mirror
 -- ---------------------------------------------------------------------------
 

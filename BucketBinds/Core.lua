@@ -44,6 +44,7 @@ local function cmdHelp()
   print("  " .. KEY .. "/bb dump … --nobind" .. R .. " — place abilities but leave your keybinds untouched")
   print("  " .. KEY .. "/bb spill" .. R .. " — drop every learned-but-unplaced ability onto the reserve bars (" .. KEY .. "spill clear" .. R .. " to undo)")
   print("  " .. KEY .. "/bb test" .. R .. " — smoke-test the place+bind path (Recuperate → ALT-0; " .. KEY .. "test clear" .. R .. " to undo)")
+  print("  " .. KEY .. "/bb diagnostics" .. R .. " — read-only resolution/placement report for the active spec (accumulates per char/spec; " .. KEY .. "diagnostics clear" .. R .. " wipes the store)")
   print("  " .. KEY .. "/bb save <name>" .. R .. " — capture bindings + bars + macros to a profile")
   print("  " .. KEY .. "/bb restore <name>" .. R .. " — mirror a profile back (auto-backs-up first)")
   print("  " .. KEY .. "/bb undo" .. R .. " — restore the pre-restore auto-backup")
@@ -121,6 +122,15 @@ local function cmdTest(rest)
   ns.Dump.Test(opts)
 end
 
+local function cmdDiagnostics(rest)
+  if not ns.Dump or not ns.Dump.Diagnostics then
+    print(ERR .. "BucketBinds" .. R .. ": dump module failed to load."); return
+  end
+  local opts = {}
+  if (rest or ""):lower():match("clear") then opts.clear = true end
+  ns.Dump.Diagnostics(opts)
+end
+
 local function cmdList()
   local any = false
   for name, p in pairs(BucketBindsDB.profiles) do
@@ -159,6 +169,8 @@ SlashCmdList.BUCKETBINDS = function(msg)
     cmdSpill(rest)
   elseif cmd == "test" then
     cmdTest(rest)
+  elseif cmd == "diagnostics" or cmd == "diag" then
+    cmdDiagnostics(rest)
   elseif cmd == "save" then
     cmdSave(rest)
   elseif cmd == "restore" then
