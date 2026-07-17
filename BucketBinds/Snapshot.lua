@@ -24,7 +24,7 @@ local WARN = "|cffffd100"
 local ERR = "|cffff4040"
 local R = "|r"
 local function say(fmt, ...)
-  print(COLOR .. "BucketBinds" .. R .. ": " .. fmt:format(...))
+  ns.Emit(COLOR .. "BucketBinds" .. R .. ": " .. fmt:format(...))
 end
 
 -- ---------------------------------------------------------------------------
@@ -212,7 +212,7 @@ end
 function Snapshot.Apply(profile, opts)
   opts = opts or {}
   if not profile then
-    print(ERR .. "BucketBinds" .. R .. ": no profile to apply.")
+    ns.Emit(ERR .. "BucketBinds" .. R .. ": no profile to apply.")
     return
   end
 

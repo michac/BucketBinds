@@ -191,3 +191,123 @@ off the WSL mount.
    retained. `/bb diagnostics clear` empties the whole store.
 5. **No-seed spec**: a spec with no seed key still records `castableTotal` +
    `unmapped` (all castable) + empty buckets with a "no seed for …" note.
+
+## In-game smoke test (M5 — macros, Phase A)
+
+Run after deploying a build (`ghaddons update michac/BucketBinds` → `/reload`).
+Phase A ships two macros: `BBfocus` (account) → key `5`, and `BBintr` (per-char,
+per-spec) → key `V` (replaces the raw interrupt on bar 1 / slot 12).
+
+1. **Spec with an interrupt** (e.g. Frost Mage): `/bb dump` → report shows
+   `macros: N created / M updated`; key `5` casts `/focus`; key `V` shows the
+   interrupt-spell icon (via `#showtooltip`) and is a **macro**. In the macro UI
+   confirm `BBintr` is a **character** macro and `BBfocus` an **account** macro.
+2. **Focus redirect**: `/focus` an enemy, target something else, press `V` →
+   interrupts the **focus**; clear focus, press `V` → interrupts current target.
+   **Warlock** (`Command Demon`): verify the `@focus` redirect fires the active
+   demon's interrupt (Felhunter Spell Lock / Felguard Axe Toss) — `@verify-ingame`.
+3. **Healer, no interrupt** (Holy Paladin / Preservation Evoker / Resto Druid /
+   Disc Priest): dump reports "no interrupt for this spec — slot V left as
+   placed"; `BBintr` not created. Holy Priest → `BBintr` built from
+   `Holy Word: Chastise`.
+4. **Idempotent**: `/bb dump` twice → macros **edited, not duplicated**; the
+   count doesn't grow.
+5. **Cross-class isolation**: dump a Warrior then a Mage on the same account →
+   each character's `BBintr` casts its own interrupt (validates per-char scope).
+6. **Form class (Druid)** — the **Hazard-1 regression check, do not skip**:
+   `/bb dump` in caster, shift to Cat/Bear → `V` still fires the interrupt
+   **macro** on the form bar (validates the form-mirror + that `bar1[12]=nil`
+   stops `onShapeshift` re-placing the raw spell).
+7. **Revert**: `/bb undo` reverts dump + macros (single backup).
+   `/bb macros clear` → `BBfocus`/`BBintr` deleted, key `5` unbound, slot 37
+   cleared (slot `V`/12 left empty — a later `/bb dump` refills it).
+8. **Combat defer**: `/bb macros` on a target dummy → prints "deferred", applies
+   on leaving combat.
+9. **Standalone**: `/bb macros Fire` and `/bb macros` (auto-detect) resolve +
+   place the two macros without a full dump.
+
+> **ExtraActionButton note**: `/bb dump` now binds key `5` to the focus macro,
+> overriding a manual `ExtraActionButton` bind (seed `bonus_binds`, applied by
+> hand — the addon never wrote key 5). Rebind EAB to another key in-game. Keys
+> `5`–`9` are the intended **utility/prep band** (free bar 5, buttons 1–5).
+
+## In-game smoke test (M5 — Phase B: items + prep)
+
+Run after deploying a build (`ghaddons update michac/BucketBinds` → `/reload`).
+Phase B adds fall-through item macros + a prep band on top of Phase A. It also
+regenerates `Data.lua` — `python3 tool/gen_data_lua.py --check` must pass.
+
+1. **Item macros**: `/bb dump` on a DPS caster → `BBhp`/`BBmana`/`BBdmg` land on
+   bar-4 slots 1–3, fired by `Alt+Q/E/R`; each shows a potion tooltip and
+   `/use`s whatever potion you carry (fall-through). `BBtrinket` on slot 5, key
+   `6`, fires `/use 13`+`/use 14`.
+2. **Racial**: key `7` casts your race's racial (`BBracial`, a **character**
+   macro). On an **unmapped** race → reported skipped, `BBracial` not created.
+   The whole `RACIALS` table is `@verify-ingame` (esp. Earthen/Dracthyr/allied).
+3. **Prep band**: key `8` = `BBflask` (fall-through all 4 flasks); key `9` =
+   `BBbuff` casts the spec's buff(s) — Mage→Arcane Intellect, Warrior→Battle
+   Shout, Enh Shaman→weapon buffs, Rogue→Instant Poison (`@verify-ingame`). A
+   class with no buff row (DK/DH/Hunter/Warlock) → `BBbuff` skipped, reported.
+4. **`skipped (M5)` shrinks**: the dump report no longer lists Healthstone/Mana/
+   Damage/Trinket/Racial; still lists `Another Combat Item If Needed`, `Mount`,
+   `Free`, Stance.
+5. **Idempotent**: `/bb dump` twice → macros edited not duplicated; key `6–9`
+   binds stable, macro count doesn't grow.
+6. **Cross-char isolation**: dump a Rogue then a Mage → each `BBracial`/`BBbuff`
+   is its own (per-char scope); consumable/trinket/flask macros are account scope.
+7. **Standalone**: `/bb macros` with no prior dump → item + prep macros placed
+   **and** `Alt+Q/E/R` + `6–9` bound (self-sufficient).
+8. **Revert**: `/bb undo` reverts dump + all macros (single backup).
+   `/bb macros clear` → all `BB*` macros deleted, keys `5/6/7/8/9` unbound, their
+   slots cleared (Alt item keys `Q/E/R/F` left to the dump layout).
+9. **Combat defer**: `/bb macros` on a dummy → "deferred", applies on leaving
+   combat.
+10. **Macro cap sanity**: macro UI → ~7 account + ~3 char `BB*` macros, well
+    under 120/18; no `(out of slots!)` warning.
+11. **255-char cap** (`@verify-ingame`): open `BBhp` (the longest group +
+    Healthstone prefix) → confirm no trailing `/use` line was silently dropped
+    and no cap warning printed.
+
+## In-game smoke test (M4a — schema-driven console)
+
+Run after deploying a build (`ghaddons update michac/BucketBinds` → `/reload`).
+M4a adds `Output.lua` (the `ns.Emit` sink) + `Console.lua` (the window) and
+rewires Core around the `ns.Commands` schema. Bundled font: **JetBrains Mono**
+(OFL-1.1, `BucketBinds/Media/JetBrainsMono.ttf`). No seed change —
+`python3 tool/gen_data_lua.py --check` still passes.
+
+1. **Toggle**: bare `/bb` **and** `/bb console` both open the window; running
+   either again closes it. The `[X]` button and `Esc` (from the input) also
+   close/blur. It's movable (drag anywhere on the frame) and resizable (bottom-
+   right grip); move + resize it, `/reload`, reopen → position/size persist
+   (`BucketBindsDB.console`).
+2. **Scrollback capture**: run `/bb status`, `/bb list`, `/bb help` **inside**
+   the console → output lands in the scrollback **and** still echoes to chat
+   (default `ns.Console.echoChat`). `/bb help` text is schema-generated from
+   `ns.Commands` — it lists **every** command with `args — desc`. Mouse-wheel
+   scrolls; Shift+wheel jumps to top/bottom.
+3. **Tab-complete**: `du`+Tab → `dump`; `dump `+Tab → inserts a spec key,
+   repeated Tab **cycles** the spec keys; `restore `+Tab → a profile name (after
+   at least one `/bb save`); `spill `/`ring `/`test `/`diagnostics `+Tab →
+   `clear`; `macros `+Tab → cycles spec keys **and** `clear`.
+4. **Live hint + dropdown + tooltip**: as you type the command token, the hint
+   line under the input shows `args — desc` for an exact match; the autocomplete
+   dropdown lists every prefix match with its one-liner; hovering a dropdown row
+   shows a `GameTooltip` (name + args + desc); clicking a row fills the input.
+5. **"Did you mean?"**: `/bb dmp` (typo) → `unknown command 'dmp'. Did you mean
+   /bb dump?` — from **both** the console input and the plain chat `/bb dmp` (the
+   suggestion lives in `ns.Dispatch`/`ns.SuggestCommand`, shared by both). While
+   typing `dmp` in the console the hint line previews the same guess.
+   `/bb dignostics` → suggests `diagnostics`.
+6. **History**: type a few commands, then ↑/↓ in the input recalls them
+   (`SetHistoryLines(64)`).
+7. **Echo coloring**: the command you run is echoed to scrollback with a `>`
+   prompt and the command token colorized (per-token in-input coloring is
+   deliberately skipped; the echo is the free substitute).
+8. **No-regression** (the important one): `/bb dump` from the console still runs
+   the **real** dumper — on a target dummy it hits the existing combat guard
+   ("deferred", applies on leaving combat); off a dummy it places + binds
+   normally. `/bb undo` reverts. Nothing about placement/binding changed — the
+   console is pure UI over the same `ns.Dispatch`.
+9. **Font fallback**: if the `.ttf` ever fails to load, the frame still renders
+   (SetFont falls back to a stock font object) — text is just not monospace.

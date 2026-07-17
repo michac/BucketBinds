@@ -24,12 +24,20 @@ Then `/reload` in-game and run `/bb status`.
 
 ## Status
 
-Working. Snapshot/restore (M1, `/bb save|restore|undo`) and the spec dumper
-(M2, `/bb dump`) are shipped; an in-addon tweak UI (M3) and item/macro
-generation (M4) are next. `/bb help` lists every command. See the design doc in
-the companion `wwt-keyboard` workspace (`projects/keybinder/project-spec.md`).
+Working. Snapshot/restore (M1, `/bb save|restore|undo`), the spec dumper (M2,
+`/bb dump`), spillover/diagnostics (M3), utility macros (M5), and the
+schema-driven in-game console (M4a — bare `/bb` opens it) are shipped. `/bb help`
+lists every command. See the design doc in the companion `wwt-keyboard`
+workspace (`projects/keybinder/project-spec.md`).
 
 ## Note
 
 `BucketBinds/Data.lua` is **generated** from a seed in the companion workspace —
 don't hand-edit it. See `CLAUDE.md` for the regenerate + release workflow.
+
+## Bundled font
+
+The in-game console (`/bb`) uses **JetBrains Mono** for its terminal look,
+bundled at `BucketBinds/Media/JetBrainsMono.ttf`. JetBrains Mono is licensed
+under the **SIL Open Font License 1.1**; the full license travels with the font
+at `BucketBinds/Media/JetBrainsMono-OFL.txt`.

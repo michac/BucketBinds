@@ -29,7 +29,7 @@ local WARN = "|cffffd100"
 local ERR = "|cffff4040"
 local R = "|r"
 local function say(fmt, ...)
-  print(COLOR .. "BucketBinds" .. R .. ": " .. fmt:format(...))
+  ns.Emit(COLOR .. "BucketBinds" .. R .. ": " .. fmt:format(...))
 end
 
 -- ---------------------------------------------------------------------------
@@ -68,6 +68,13 @@ local FORM_BONUS_BARS = {
   WARRIOR = { 1, 2, 3 }, -- stances (if they page in 12.0.x)
   PRIEST  = { 1 },       -- Shadowform (if it pages in 12.0.x)
 }
+
+-- The form/stance bonus-bar offsets for a class, so the M5 macro post-pass can
+-- mirror the interrupt macro onto the same form bars the dump mirrors bar 1 to.
+function Dump.FormOffsets(classToken)
+  classToken = classToken or select(2, UnitClass("player"))
+  return FORM_BONUS_BARS[classToken]
+end
 
 -- Classes whose contextual ALT+1..8 row is the PET bar (BONUSACTIONBUTTON). Every
 -- other class either uses the STANCE bar (detected at runtime via
@@ -261,7 +268,7 @@ function Dump.Run(seedKey, opts)
   opts = opts or {}
   local spec = ns.SEED and ns.SEED.specs[seedKey]
   if not spec then
-    print(ERR .. "BucketBinds" .. R .. ": unknown spec '" .. tostring(seedKey) .. "'.")
+    ns.Emit(ERR .. "BucketBinds" .. R .. ": unknown spec '" .. tostring(seedKey) .. "'.")
     return
   end
 
@@ -319,8 +326,11 @@ function Dump.Run(seedKey, opts)
           unresolved[#unresolved + 1] = name
         end
       elseif name and PLACEHOLDER[name] then
-        -- placeholder on a real bar (Alt-bar item/trinket/racial macros, Mount)
-        skippedM5[b.category] = true
+        -- placeholder on a real bar (Alt-bar item/trinket/racial macros, Mount).
+        -- Categories the M5 macro post-pass fully handles drop off the skip list.
+        if not (ns.Macros and ns.Macros.HANDLED_CATEGORIES[b.category]) then
+          skippedM5[b.category] = true
+        end
       end
       -- (name == nil → this spec doesn't use the bucket; silent, not an error)
 
@@ -386,6 +396,17 @@ function Dump.Run(seedKey, opts)
     end
   end
 
+  -- M5 macro post-pass (Phase A): overwrite slot 12's raw interrupt with the
+  -- smart focus-interrupt macro, and place + bind the set-focus macro on key 5.
+  -- Runs BEFORE the lastDump stash so Apply can nil bar1IDs[12] (see Hazard 1:
+  -- otherwise onShapeshift re-places the raw interrupt over the macro on form
+  -- entry). formOffsets and bar1IDs are already locals here.
+  local macroRep
+  if ns.Macros then
+    macroRep = ns.Macros.Apply(seedKey, {
+      fromDump = true, formOffsets = formOffsets, bar1IDs = bar1IDs, noBind = opts.noBind })
+  end
+
   -- Persist the bindings once (skipped under --nobind), and stash the bar-1
   -- layout for the self-healing shapeshift hook.
   if not opts.noBind then SaveBindings(GetCurrentBindingSet()) end
@@ -407,6 +428,19 @@ function Dump.Run(seedKey, opts)
   if #m5 > 0 then
     table.sort(m5)
     say(WARN .. "skipped (M5 — items/macros/stances): %s" .. R, table.concat(m5, ", "))
+  end
+  if macroRep then
+    say("  macros: %d created, %d updated%s", macroRep.created, macroRep.edited,
+      macroRep.capped > 0 and (WARN .. " (out of slots!)" .. R) or "")
+    if macroRep.intrSkipped then
+      say("  no interrupt for this spec — slot V left as placed.")
+    end
+    say("  items: %d placed%s (trinket→6, racial→%s); prep: flask→8%s, buff→9%s",
+      macroRep.itemsPlaced, macroRep.itemsCapped > 0 and (WARN .. " (capped!)" .. R) or "",
+      macroRep.racialSkipped and (WARN .. "skipped" .. R) or "7",
+      macroRep.flaskPlaced and "" or (WARN .. " (not placed)" .. R),
+      macroRep.buffSkipped and (WARN .. " skipped" .. R)
+        or (macroRep.buffPlaced and "" or (WARN .. " (not placed)" .. R)))
   end
   say("not what you wanted? " .. "/bb undo" .. " reverts this dump.")
   return "applied"
@@ -625,12 +659,13 @@ end
 -- ---------------------------------------------------------------------------
 
 -- Recuperate — a universal level-90 Midnight ability every character learns —
--- is the probe spell. Placed on the freed "Left" bar (MultiBar4 button 1, abs
--- slot 37) with a known-good binding command, and bound to ALT-0 (rarely used).
+-- is the probe spell. Placed on bar 5 button 12 (abs slot 48 — unused; the M5
+-- macro engine now owns button 1 / slot 37 for the set-focus macro on key 5)
+-- with a known-good binding command, and bound to ALT-0 (rarely used).
 -- Non-destructive: captures + restores whatever it displaces via /bb test clear.
 local TEST_SPELL = 1231418            -- Recuperate
-local TEST_SLOT  = 37                 -- MULTIACTIONBAR4BUTTON1 (freed bar 5)
-local TEST_CMD   = "MULTIACTIONBAR4BUTTON1"
+local TEST_SLOT  = 48                 -- MULTIACTIONBAR4BUTTON12 (bar 5 button 12, unused)
+local TEST_CMD   = "MULTIACTIONBAR4BUTTON12"
 local TEST_KEY   = "ALT-0"
 
 function Dump.Test(opts)
