@@ -72,7 +72,12 @@ releases so version tracking is clean). So updating the in-game addon is:
    ```
    (No BigWigs packager here, so ghaddons uses the release's **source zip** —
    which contains `BucketBinds/BucketBinds.toc`, so it installs correctly.)
-6. **Deploy**: `cd ../../../addon-manager && python3 -m ghaddons.cli update michac/BucketBinds`
+6. **Deploy** — runnable from any directory (ghaddons keeps its config next to
+   its own package, not in the cwd), from WSL or from Windows `python`:
+   ```bash
+   PYTHONPATH=~/code/fun/wow/addon-manager python3 -m ghaddons.cli update michac/BucketBinds
+   ```
+   Confirm with `... list` — BucketBinds should read `ok` at the new version.
    (first time: `... add michac/BucketBinds` then `... install michac/BucketBinds`).
 7. In-game: `/reload` (or restart) to load the new build; `/bb status` to confirm.
 
