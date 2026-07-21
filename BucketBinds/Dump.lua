@@ -222,16 +222,33 @@ local ALIASES = {
   ["Efflorescence?"] = "Efflorescence",
 }
 
--- name → spellID (or nil). Placeholder labels and unknown/untalented names
+-- Collapse a talented/transient override to its BASE spell. Two jobs:
+--   1) resolution — `C_Spell.GetSpellInfo(name)` follows whatever override is
+--      live *at that instant*, so "Hand of Gul'dan" resolves to Ruination while
+--      the Diabolist Pit Lord art is armed, and "Grimoire: Fel Ravager" to
+--      Devour Magic while the grimoire is on cooldown. Placing that transient
+--      ID bakes a momentary state onto the bar — the button then shows a spell
+--      that is dead most of the time, which reads in-game as "the ability never
+--      got bound". Always place the base; the game re-applies the override on
+--      the button by itself.
+--   2) comparison — so a placed override and its spellbook base count as one.
+-- Falls back to the id if the API is unavailable.
+local function normID(id)
+  if not id then return nil end
+  local base = FindBaseSpellByID and FindBaseSpellByID(id)
+  return base or id
+end
+
+-- name → base spellID (or nil). Placeholder labels and unknown/untalented names
 -- return nil so the caller reports them cleanly instead of placing a wrong spell.
 local function resolveSpellID(name, sbMap)
   if not name or PLACEHOLDER[name] then return nil end
   name = ALIASES[name] or name
   if C_Spell and C_Spell.GetSpellInfo then
     local info = C_Spell.GetSpellInfo(name)
-    if info and info.spellID then return info.spellID end
+    if info and info.spellID then return normID(info.spellID) end
   end
-  return sbMap and sbMap[name] or nil
+  return normID(sbMap and sbMap[name] or nil)
 end
 
 -- ---------------------------------------------------------------------------
@@ -460,13 +477,7 @@ end
 --   /run for i=133,180 do local t,id=GetActionInfo(i); if t then print(i,t,id) end end
 local SPILL_BASE, SPILL_COUNT = 145, 24
 
--- Collapse a talented override to its base spell so a placed override and its
--- spellbook base count as one. Falls back to the id if the API is unavailable.
-local function normID(id)
-  if not id then return nil end
-  local base = FindBaseSpellByID and FindBaseSpellByID(id)
-  return base or id
-end
+-- (normID lives above, next to resolveSpellID — it's part of resolution now.)
 
 -- Every learned, castable, active-spec spell as {id, name}. Skips passives and
 -- non-Spell book entries (FutureSpell / Flyout / PetAction).
