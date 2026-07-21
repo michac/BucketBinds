@@ -373,6 +373,12 @@ local function ensureFrame()
 
   output:AddMessage(DIM .. "BucketBinds console — type a command, " .. R .. KEY .. "help" .. R ..
     DIM .. " to list them. Tab completes, ↑/↓ recall history." .. R)
+
+  -- CreateFrame returns a SHOWN frame. Without this, the first /bb builds the
+  -- window in a shown state, Toggle sees IsShown() == true and immediately
+  -- hides it — so the first press appears to do nothing and only the second
+  -- opens the console. Start hidden so Toggle/Show/Hide have one known origin.
+  frame:Hide()
 end
 
 -- ---------------------------------------------------------------------------

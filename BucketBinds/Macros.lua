@@ -3,7 +3,7 @@
 -- express, reusing the addon's existing place/bind plumbing.
 --
 -- Phase B fills out the utility/prep band: fall-through consumable macros
--- (BBhp → key 5, BBdmg → key 0, BBmana → Alt+R, BBflask → Alt+Q), a generic
+-- (BBhp → Shift+Z, BBdmg → key 0, BBmana → Alt+R, BBflask → Alt+Q), a generic
 -- trinket macro (BBtrinket → key 8), a per-race racial (BBracial → key 9), and a
 -- per-spec pre-pull buff (BBbuff → Alt+E). Item bodies /use every ID in a seed
 -- group so whichever consumable the player carries fires. Mount stays a
@@ -50,7 +50,8 @@ end
 --     deliberate press, not a reactive one, and bar 3 slot 1 is otherwise free.
 --   * flask/buff-food demoted off unmod `8`/`9` to ALT-Q/ALT-E — they are pressed
 --     once an hour, out of combat, and were squatting on the best keys left.
---   * the freed `5`/`0` now carry Healthstone and Damage Potion.
+--   * the `5`-`0` row is the PREP band (Buff/Mount/Res/trinket/racial/dmg pot).
+--     Healthstone-USE is a panic button, so it lives on SHIFT-Z, not key 5.
 -- Bar bases (mirror Dump.lua BAR_MAP): b1=1, b2=61, b3=49, b4=25, b5=37.
 local FOCUS_SLOT = 49                           -- MULTIACTIONBAR2BUTTON1 (bar 3, button 1)
 local FOCUS_CMD  = "MULTIACTIONBAR2BUTTON1"
@@ -62,14 +63,14 @@ local INTR_SLOT  = 12                           -- bar 1, slot 12 (the Interrupt
 -- macro is on bar 5 (base 37) in the Alt band. These keys are ALSO bound by
 -- Dump.Run's bind loop (placeholder buckets included), so for a plain /bb dump the
 -- binds are redundant; Apply sets them too so /bb macros is self-sufficient standalone.
-local ITEM_SLOTS = { hp = 28, mana = 42, dmg = 33, trinket = 31, racial = 32 }
+local ITEM_SLOTS = { hp = 69, mana = 42, dmg = 33, trinket = 31, racial = 32 }
 local ITEM_CMDS  = {
-  hp = "MULTIACTIONBAR3BUTTON4", mana = "MULTIACTIONBAR4BUTTON6",
+  hp = "MULTIACTIONBAR1BUTTON9", mana = "MULTIACTIONBAR4BUTTON6",
   dmg = "MULTIACTIONBAR3BUTTON9", trinket = "MULTIACTIONBAR3BUTTON7",
   racial = "MULTIACTIONBAR3BUTTON8",
 }
 local ITEM_KEYS  = {
-  hp = "5", mana = "ALT-R", dmg = "0",
+  hp = "SHIFT-Z", mana = "ALT-R", dmg = "0",
   trinket = "8", racial = "9",
 }
 -- Prep macros ride the Alt band on bar 5 (base 37), buttons 4–5.
@@ -269,7 +270,7 @@ function Macros.Apply(seedKey, opts)
     elseif st == "capped" then rep.capped = rep.capped + 1 end
   end
 
-  -- 1) Set-focus macro → free bar 5 button 1, bound to key 5.
+  -- 1) Set-focus macro → bar 3 button 1, bound to CTRL-Q (LAYOUT v2).
   local fb = Macros.FocusBody()
   local fidx, fst = upsert(fb.name, fb.icon, fb.body, fb.perChar)
   tally(fst)
@@ -410,7 +411,7 @@ function Macros.RunStandalone(opts)
     FOCUS_KEY, rep.focusPlaced and "" or (WARN .. " (not placed)" .. R),
     rep.intrSkipped and (WARN .. " skipped — no interrupt for this spec" .. R)
       or (rep.intrPlaced and "" or (WARN .. " (not placed)" .. R)))
-  say("  items: %d placed%s (hs→5, dmg→0, mana→Alt+R, trinket→8, racial→%s); prep: flask→Alt+Q%s, buff→Alt+E%s.",
+  say("  items: %d placed%s (hs→Shift+Z, dmg→0, mana→Alt+R, trinket→8, racial→%s); prep: flask→Alt+Q%s, buff→Alt+E%s.",
     rep.itemsPlaced, rep.itemsCapped > 0 and (WARN .. " (capped!)" .. R) or "",
     rep.racialSkipped and (WARN .. "skipped" .. R) or "9",
     rep.flaskPlaced and "" or (WARN .. " (not placed)" .. R),

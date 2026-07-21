@@ -460,7 +460,7 @@ function Dump.Run(seedKey, opts)
     if macroRep.intrSkipped then
       say("  no interrupt for this spec — slot V left as placed.")
     end
-    say("  items: %d placed%s (trinket→8, racial→%s); prep: flask→Alt+Q%s, buff→Alt+E%s",
+    say("  items: %d placed%s (hs→Shift+Z, trinket→8, racial→%s); prep: flask→Alt+Q%s, buff→Alt+E%s",
       macroRep.itemsPlaced, macroRep.itemsCapped > 0 and (WARN .. " (capped!)" .. R) or "",
       macroRep.racialSkipped and (WARN .. "skipped" .. R) or "9",
       macroRep.flaskPlaced and "" or (WARN .. " (not placed)" .. R),
@@ -514,14 +514,35 @@ local function enumerateCastable()
   return out
 end
 
--- Absolute slots 1–144 hold every "real" bar (bars 1–6 pages + form/stance
--- bonus bars); collect the spells sitting there, normalized. This is the
--- ground-truth "already on a bar" set — includes the dump AND manual placements.
+-- The ground-truth "already on a reachable bar" set — the dump AND manual
+-- placements. Normalized through normID so an override and its base count once.
+--
+-- ⚠ REACHABILITY, not merely occupancy. The old version scanned 1–144 flat,
+-- which swept in the form/stance bonus bars (73–120) for every class. Those are
+-- real action slots but the UI only ever shows them for a class that HAS forms —
+-- so a Warlock with Create Healthstone parked on slot 114 (bonus bar 4) had it
+-- counted as "on a bar", which made /bb spill suppress it and never give it a
+-- visible, bindable home. Found in-game 2026-07-21.
+--   1–72     the six real bar pages          — always reachable
+--   73–120   form/stance bonus bars 1–4      — ONLY for a FORM_BONUS_BARS class,
+--                                              and only that class's own offsets
+--   121–132  skyriding bonus bar             — excluded: usable only while
+--                                              flying, never as a combat home
+--   133–180  MultiBar5/6/7 (Action Bars 6–8) — always reachable
 local function placedSpellSet()
   local set = {}
-  for slot = 1, 144 do
-    local t, id = GetActionInfo(slot)
-    if t == "spell" and id then set[normID(id)] = true end
+  local function scan(from, to)
+    for slot = from, to do
+      local t, id = GetActionInfo(slot)
+      if t == "spell" and id then set[normID(id)] = true end
+    end
+  end
+  scan(1, 72)
+  scan(133, 180)
+  local _, classToken = UnitClass("player")
+  for _, off in ipairs(FORM_BONUS_BARS[classToken] or {}) do
+    local base = 1 + (5 + off) * 12 -- offset 1→73, 2→85, 3→97, 4→109
+    scan(base, base + 11)
   end
   return set
 end
@@ -1021,9 +1042,16 @@ end
 local function onShapeshift()
   local dump = BucketBindsDB and BucketBindsDB.lastDump
   if not dump or not dump.bar1 or InCombatLockdown() then return end
+  -- Only classes that actually page a form bar may be mirrored onto. Without
+  -- this the hook fired for ANY class whenever GetBonusBarOffset() went
+  -- non-zero — notably offset 5 on a skyriding mount, base 121 — and scribbled
+  -- the rotation onto the empty half of the skyriding bar. Found 2026-07-21.
+  local _, ct = UnitClass("player")
+  if not FORM_BONUS_BARS[ct] then return end
   local offset = GetBonusBarOffset and GetBonusBarOffset()
   if not offset or offset <= 0 then return end
   local base = 1 + (5 + offset) * 12
+  if base + 11 > 120 then return end -- skyriding (121+) is not a form bar
   for s = 1, 12 do -- bar 1 holds 12 buckets (unmod layer); form bars are 12 slots
     local absSlot = base + (s - 1)
     if absSlot >= 1 and absSlot <= 180 and not GetActionInfo(absSlot) then

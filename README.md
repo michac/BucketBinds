@@ -27,7 +27,7 @@ Then `/reload` in-game and run `/bb status`.
 Working. Snapshot/restore (M1, `/bb save|restore|undo`), the spec dumper (M2,
 `/bb dump`), spillover/diagnostics (M3), utility macros (M5), and the
 schema-driven in-game console (M4a — bare `/bb` opens it) are shipped. `/bb help`
-lists every command. See the design doc in the companion `wwt-keyboard`
+lists every command. See the design doc in the companion `wow`
 workspace (`projects/keybinder/project-spec.md`).
 
 ## Note

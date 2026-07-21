@@ -1,7 +1,7 @@
 # BucketBinds — addon repo (michac/BucketBinds)
 
 This is a **standalone GitHub repo** for the BucketBinds WoW addon, checked out
-**inside** the `wwt-keyboard` workspace at `projects/keybinder/addon/` but with
+**inside** the `wow` workspace at `projects/keybinder/addon/` but with
 its **own git root** (`michac/BucketBinds`). The parent workspace **gitignores
 this folder** (`/projects/keybinder/addon/`) so the workspace never sees it as
 an embedded repo — exactly how `planner-state/` (michac/wow-planner-state) is
@@ -16,7 +16,7 @@ the installed copy is what `ghaddons` deploys.
 A one-shot **bucket → action-slot** keybind/bar dumper plus **transactional
 save/restore** of your keybind + bar + macro state. Full design, rationale, and
 milestones live in the **parent project spec**: `../project-spec.md` (in the
-`wwt-keyboard` repo, not this one).
+`wow` repo, not this one).
 
 ## Relationship to the parent workspace (important)
 
@@ -24,8 +24,8 @@ milestones live in the **parent project spec**: `../project-spec.md` (in the
 JSON the parent workspace curates:
 
 ```
-wwt-keyboard/projects/keybinder/
-  data/bellular-keybinds.seed.json   <- CANONICAL seed, hand-edited (lives in wwt-keyboard)
+wow/projects/keybinder/
+  data/bellular-keybinds.seed.json   <- CANONICAL seed, hand-edited (lives in wow)
   tool/gen_data_lua.py               <- regenerates BucketBinds/Data.lua HERE
 ```
 
@@ -44,10 +44,15 @@ projects/keybinder/addon/         <- THIS repo root (michac/BucketBinds)
   .gitignore
   BucketBinds/                    <- the addon folder ghaddons installs
     BucketBinds.toc
-    Core.lua                      namespace, slash cmds, load
+    Core.lua                      namespace, slash cmds, load, ns.Dispatch
     Data.lua                      GENERATED from the parent seed
     Snapshot.lua                  (M1) save/restore
-    Dump.lua                      (M2) seed → bars; (M3) spillover; /bb test
+    Dump.lua                      (M2) seed → bars; (M3) spillover + /bb ring;
+                                  (M3.1) /bb diagnostics; /bb test
+    Macros.lua                    (M5) generated focus/interrupt/item/prep macros
+    Output.lua                    (M4a) the ns.Emit output sink
+    Console.lua                   (M4a) the in-game /bb console window
+    Media/JetBrainsMono.ttf       (M4a) bundled console font (OFL-1.1)
 ```
 
 ## Deploy / release workflow (a plain push does NOT reach the game)
@@ -84,8 +89,13 @@ releases so version tracking is clean). So updating the in-game addon is:
 ## Conventions
 
 - **Interface version** tracks the live patch (workspace source of truth:
-  `wwt-keyboard/knowledge/_meta/game-version.md`). 12.0.7 = `120007`.
+  `wow/knowledge/_meta/game-version.md`). 12.0.7 = `120007`.
 - **Tag = `.toc` version**, prefixed `v` (e.g. `## Version: 0.1.0` → tag `v0.1.0`).
+  ⚠ `gh release create` makes the tag **server-side**, so local `git tag` lags far
+  behind (it stops at v0.3.2 while GitHub is at v0.10.0). **`gh release list` is the
+  shipped-version signal, not `git tag`.** `git fetch --tags` to sync if you care.
+  Note there is **no v0.7.0/v0.8.0** — M5 Phase A/B were developed under those
+  numbers but released folded into v0.9.0.
 - SavedVariables: `BucketBindsDB`.
 
 ## In-game smoke test (M1 — snapshot/restore)
@@ -121,9 +131,9 @@ cd ../projects/keybinder && uv run python tool/check_seed_spells.py
 ```
 
 Fix real typos via `Dump.lua`'s `ALIASES` table (non-destructive — `Data.lua` is
-generated and the source `.xlsx` is off-box). Known benign misses that stay
-`unresolved`/`skipped` in-game (no single spell behind them): `Res` (Priest/Monk
-Buff slot), `Poisons` (Rogue), `Protection Stance` (Warrior Stance — an M5 bucket).
+generated and the source `.xlsx` is off-box). As of LAYOUT v2 a clean run reports
+**exactly two** benign misses (no single spell behind them): `Poisons` (Rogue) and
+`Res` (Monk/Mistweaver). `Protection Stance` no longer appears.
 
 ## In-game smoke test (M2 — dump)
 
@@ -200,11 +210,12 @@ off the WSL mount.
 ## In-game smoke test (M5 — macros, Phase A)
 
 Run after deploying a build (`ghaddons update michac/BucketBinds` → `/reload`).
-Phase A ships two macros: `BBfocus` (account) → key `5`, and `BBintr` (per-char,
-per-spec) → key `V` (replaces the raw interrupt on bar 1 / slot 12).
+Phase A ships two macros: `BBfocus` (account) → **`CTRL-Q`**, and `BBintr`
+(per-char, per-spec) → key `V` (replaces the raw interrupt on bar 1 / slot 12).
+*(Key assignments below are LAYOUT v2 / v0.10.0. Pre-v0.10.0 builds used `5`.)*
 
 1. **Spec with an interrupt** (e.g. Frost Mage): `/bb dump` → report shows
-   `macros: N created / M updated`; key `5` casts `/focus`; key `V` shows the
+   `macros: N created / M updated`; `CTRL-Q` casts `/focus`; key `V` shows the
    interrupt-spell icon (via `#showtooltip`) and is a **macro**. In the macro UI
    confirm `BBintr` is a **character** macro and `BBfocus` an **account** macro.
 2. **Focus redirect**: `/focus` an enemy, target something else, press `V` →
@@ -224,17 +235,18 @@ per-spec) → key `V` (replaces the raw interrupt on bar 1 / slot 12).
    **macro** on the form bar (validates the form-mirror + that `bar1[12]=nil`
    stops `onShapeshift` re-placing the raw spell).
 7. **Revert**: `/bb undo` reverts dump + macros (single backup).
-   `/bb macros clear` → `BBfocus`/`BBintr` deleted, key `5` unbound, slot 37
+   `/bb macros clear` → `BBfocus`/`BBintr` deleted, `CTRL-Q` unbound, slot 49
    cleared (slot `V`/12 left empty — a later `/bb dump` refills it).
 8. **Combat defer**: `/bb macros` on a target dummy → prints "deferred", applies
    on leaving combat.
 9. **Standalone**: `/bb macros Fire` and `/bb macros` (auto-detect) resolve +
    place the two macros without a full dump.
 
-> **ExtraActionButton note**: `/bb dump` now binds key `5` to the focus macro,
-> overriding a manual `ExtraActionButton` bind (seed `bonus_binds`, applied by
-> hand — the addon never wrote key 5). Rebind EAB to another key in-game. Keys
-> `5`–`9` are the intended **utility/prep band** (free bar 5, buttons 1–5).
+> **ExtraActionButton note**: under LAYOUT v2.1 `/bb dump` binds key `5` to the
+> **Buff** bucket (bar 4 / slot 4), overriding a manual `ExtraActionButton` bind
+> (seed `bonus_binds`, applied by hand). Rebind EAB to another key in-game.
+> The `5`–`0` row is bar 4 slots 4–9 and is the **prep band** — nothing reactive
+> lives there.
 
 ## In-game smoke test (M5 — Phase B: items + prep)
 
@@ -242,29 +254,31 @@ Run after deploying a build (`ghaddons update michac/BucketBinds` → `/reload`)
 Phase B adds fall-through item macros + a prep band on top of Phase A. It also
 regenerates `Data.lua` — `python3 tool/gen_data_lua.py --check` must pass.
 
-1. **Item macros**: `/bb dump` on a DPS caster → `BBhp`/`BBmana`/`BBdmg` land on
-   bar-4 slots 1–3, fired by `Alt+Q/E/R`; each shows a potion tooltip and
-   `/use`s whatever potion you carry (fall-through). `BBtrinket` on slot 5, key
-   `6`, fires `/use 13`+`/use 14`.
-2. **Racial**: key `7` casts your race's racial (`BBracial`, a **character**
+1. **Item macros**: `/bb dump` on a DPS caster → `BBhp` on bar 2 slot 9
+   (**`SHIFT-Z`** — it's a panic button, not prep), `BBdmg` on bar 4 slot 9 (key
+   `0`), `BBmana` on bar 5 slot 6 (`ALT-R`);
+   each shows a potion tooltip and `/use`s whatever potion you carry
+   (fall-through). `BBtrinket` on bar 4 slot 7, key `8`, fires `/use 13`+`/use 14`.
+2. **Racial**: key `9` casts your race's racial (`BBracial`, a **character**
    macro). On an **unmapped** race → reported skipped, `BBracial` not created.
    The whole `RACIALS` table is `@verify-ingame` (esp. Earthen/Dracthyr/allied).
-3. **Prep band**: key `8` = `BBflask` (fall-through all 4 flasks); key `9` =
+3. **Prep band**: `ALT-Q` = `BBflask` (fall-through all 4 flasks); `ALT-E` =
    `BBbuff` casts the spec's buff(s) — Mage→Arcane Intellect, Warrior→Battle
    Shout, Enh Shaman→weapon buffs, Rogue→Instant Poison (`@verify-ingame`). A
    class with no buff row (DK/DH/Hunter/Warlock) → `BBbuff` skipped, reported.
 4. **`skipped (M5)` shrinks**: the dump report no longer lists Healthstone/Mana/
    Damage/Trinket/Racial; still lists `Another Combat Item If Needed`, `Mount`,
    `Free`, Stance.
-5. **Idempotent**: `/bb dump` twice → macros edited not duplicated; key `6–9`
-   binds stable, macro count doesn't grow.
+5. **Idempotent**: `/bb dump` twice → macros edited not duplicated; the
+   `SHIFT-Z`/`0`/`8`/`9`/`ALT-Q`/`ALT-E`/`ALT-R` binds stay stable, macro count doesn't grow.
 6. **Cross-char isolation**: dump a Rogue then a Mage → each `BBracial`/`BBbuff`
    is its own (per-char scope); consumable/trinket/flask macros are account scope.
 7. **Standalone**: `/bb macros` with no prior dump → item + prep macros placed
-   **and** `Alt+Q/E/R` + `6–9` bound (self-sufficient).
+   **and** `SHIFT-Z`/`0`/`8`/`9`/`ALT-Q`/`ALT-E`/`ALT-R` bound (self-sufficient).
 8. **Revert**: `/bb undo` reverts dump + all macros (single backup).
-   `/bb macros clear` → all `BB*` macros deleted, keys `5/6/7/8/9` unbound, their
-   slots cleared (Alt item keys `Q/E/R/F` left to the dump layout).
+   `/bb macros clear` → all `BB*` macros deleted, `CTRL-Q`/`8`/`9`/`ALT-Q`/`ALT-E`
+   unbound, their slots cleared (the seed-owned item keys `5`/`0`/`ALT-R` are left
+   to the dump layout).
 9. **Combat defer**: `/bb macros` on a dummy → "deferred", applies on leaving
    combat.
 10. **Macro cap sanity**: macro UI → ~7 account + ~3 char `BB*` macros, well
