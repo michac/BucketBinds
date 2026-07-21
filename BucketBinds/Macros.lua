@@ -2,15 +2,17 @@
 -- (create → place on a bar → bind a key) that the seed's raw-spell dump can't
 -- express, reusing the addon's existing place/bind plumbing.
 --
--- Phase B fills out the utility/prep band (keys 5–9): fall-through consumable
--- macros (BBhp/BBmana/BBdmg on the Alt item slots, BBflask on key 8), a generic
--- trinket macro (BBtrinket → key 6), a per-race racial (BBracial → key 7), and a
--- per-spec pre-pull buff (BBbuff → key 9). Item bodies /use every ID in a seed
+-- Phase B fills out the utility/prep band: fall-through consumable macros
+-- (BBhp → key 5, BBdmg → key 0, BBmana → Alt+R, BBflask → Alt+Q), a generic
+-- trinket macro (BBtrinket → key 8), a per-race racial (BBracial → key 9), and a
+-- per-spec pre-pull buff (BBbuff → Alt+E). Item bodies /use every ID in a seed
 -- group so whichever consumable the player carries fires. Mount stays a
 -- placeholder (deferred to the OPie travel ring, M6).
 --
+-- Key assignments follow LAYOUT v2 (2026-07-21) — see the constant block below.
+--
 -- Phase A ships two macros:
---   * BBfocus  — /focus, bound to key 5 (account scope; identical everywhere).
+--   * BBfocus  — /focus, bound to CTRL-Q (account scope; identical everywhere).
 --   * BBintr   — a per-spec smart focus-interrupt that REPLACES the raw interrupt
 --                spell the dump puts on bar 1 / slot 12 (key V). Every spec's V
 --                becomes "interrupt your focus if it's a live enemy, else your
@@ -42,34 +44,38 @@ local function say(fmt, ...)
   ns.Emit(COLOR .. "BucketBinds" .. R .. ": " .. fmt:format(...))
 end
 
--- The utility/prep band lives on the free "Left" bar (MultiBar4 = bar 5, base
--- slot 37). Key 5 → button 1 of that bar carries the set-focus macro; keys 5–9
--- are the intended utility/prep band (free bar 5, buttons 1–5).
-local FOCUS_SLOT = 37                          -- MULTIACTIONBAR4BUTTON1 (free bar 5, button 1)
-local FOCUS_CMD  = "MULTIACTIONBAR4BUTTON1"
-local FOCUS_KEY  = "5"
+-- LAYOUT v2 (2026-07-21): the `5`–`0` row moved onto bar 4 (MultiBar3, base 25)
+-- and the reactive buckets came off Ctrl/Alt. Consequences here:
+--   * set-focus demoted off key `5` (a premium unmod key) to CTRL-Q — it is a
+--     deliberate press, not a reactive one, and bar 3 slot 1 is otherwise free.
+--   * flask/buff-food demoted off unmod `8`/`9` to ALT-Q/ALT-E — they are pressed
+--     once an hour, out of combat, and were squatting on the best keys left.
+--   * the freed `5`/`0` now carry Healthstone and Damage Potion.
+-- Bar bases (mirror Dump.lua BAR_MAP): b1=1, b2=61, b3=49, b4=25, b5=37.
+local FOCUS_SLOT = 49                           -- MULTIACTIONBAR2BUTTON1 (bar 3, button 1)
+local FOCUS_CMD  = "MULTIACTIONBAR2BUTTON1"
+local FOCUS_KEY  = "CTRL-Q"
 local INTR_SLOT  = 12                           -- bar 1, slot 12 (the Interrupt bucket = key V)
 
--- Phase B item macros ride the bar-4 (Alt-layer) slots the seed reserves for the
--- item/trinket/racial buckets — abs slot = bar4 base(25) + (bucketSlot-1). The Alt
--- keys are ALSO bound by Dump.Run's bind loop (placeholder buckets included), so
--- for a plain /bb dump those binds are redundant; Apply sets them too so /bb macros
--- is self-sufficient standalone. The NEW keys 6/7 (trinket/racial, keyless in the
--- seed) and 8/9 (prep band) are owned solely by this macro pass.
-local ITEM_SLOTS = { hp = 25, mana = 26, dmg = 27, trinket = 29, racial = 30 }
+-- Phase B item macros ride the slots the seed reserves for the item/trinket/racial
+-- buckets. Healthstone/Damage/Trinket/Racial are on bar 4 (base 25); the mana-potion
+-- macro is on bar 5 (base 37) in the Alt band. These keys are ALSO bound by
+-- Dump.Run's bind loop (placeholder buckets included), so for a plain /bb dump the
+-- binds are redundant; Apply sets them too so /bb macros is self-sufficient standalone.
+local ITEM_SLOTS = { hp = 28, mana = 42, dmg = 33, trinket = 31, racial = 32 }
 local ITEM_CMDS  = {
-  hp = "MULTIACTIONBAR3BUTTON1", mana = "MULTIACTIONBAR3BUTTON2",
-  dmg = "MULTIACTIONBAR3BUTTON3", trinket = "MULTIACTIONBAR3BUTTON5",
-  racial = "MULTIACTIONBAR3BUTTON6",
+  hp = "MULTIACTIONBAR3BUTTON4", mana = "MULTIACTIONBAR4BUTTON6",
+  dmg = "MULTIACTIONBAR3BUTTON9", trinket = "MULTIACTIONBAR3BUTTON7",
+  racial = "MULTIACTIONBAR3BUTTON8",
 }
 local ITEM_KEYS  = {
-  hp = "ALT-Q", mana = "ALT-E", dmg = "ALT-R", -- redundant w/ dump; set for standalone
-  trinket = "6", racial = "7",                 -- NEW binds (prep band)
+  hp = "5", mana = "ALT-R", dmg = "0",
+  trinket = "8", racial = "9",
 }
--- Prep macros ride the free "Left" bar (bar 5), like focus on button 1 / slot 37.
+-- Prep macros ride the Alt band on bar 5 (base 37), buttons 4–5.
 local PREP = {
-  flask = { slot = 38, cmd = "MULTIACTIONBAR4BUTTON2", key = "8" },
-  buff  = { slot = 39, cmd = "MULTIACTIONBAR4BUTTON3", key = "9" },
+  flask = { slot = 40, cmd = "MULTIACTIONBAR4BUTTON4", key = "ALT-Q" },
+  buff  = { slot = 41, cmd = "MULTIACTIONBAR4BUTTON5", key = "ALT-E" },
 }
 
 -- Seed categories the Phase-B macro pass fully handles, so Dump.Run drops them
@@ -337,7 +343,7 @@ function Macros.Apply(seedKey, opts)
     rep.racialSkipped = true
   end
 
-  -- Prep band → free bar-5 buttons (keys 8/9). Flask = account; buff = per-char.
+  -- Prep band → bar-5 Alt band (ALT-Q/ALT-E). Flask = account; buff = per-char.
   local fplaced = applyMacro("BBflask", ICON,
     Macros.ConsumableBody("BBflask", false, ICON, "Flasks").body, false,
     PREP.flask.slot, PREP.flask.cmd, PREP.flask.key)
@@ -404,9 +410,9 @@ function Macros.RunStandalone(opts)
     FOCUS_KEY, rep.focusPlaced and "" or (WARN .. " (not placed)" .. R),
     rep.intrSkipped and (WARN .. " skipped — no interrupt for this spec" .. R)
       or (rep.intrPlaced and "" or (WARN .. " (not placed)" .. R)))
-  say("  items: %d placed%s (Alt+Q/E/R, trinket→6, racial→%s); prep: flask→8%s, buff→9%s.",
+  say("  items: %d placed%s (hs→5, dmg→0, mana→Alt+R, trinket→8, racial→%s); prep: flask→Alt+Q%s, buff→Alt+E%s.",
     rep.itemsPlaced, rep.itemsCapped > 0 and (WARN .. " (capped!)" .. R) or "",
-    rep.racialSkipped and (WARN .. "skipped" .. R) or "7",
+    rep.racialSkipped and (WARN .. "skipped" .. R) or "9",
     rep.flaskPlaced and "" or (WARN .. " (not placed)" .. R),
     rep.buffSkipped and (WARN .. " skipped — no buff for this spec" .. R)
       or (rep.buffPlaced and "" or (WARN .. " (not placed)" .. R)))
@@ -445,8 +451,8 @@ function Macros.Clear(opts)
   clearSlot(PREP.flask.slot)
   clearSlot(PREP.buff.slot)
 
-  -- Unbind key 5 (focus) and the NEW keys 6/7/8/9 the macro pass owns. The Alt
-  -- item keys (Alt+Q/E/R/F) belong to the dump layout, so leave them.
+  -- Unbind the focus key and the keys this macro pass owns. The seed-owned item
+  -- keys (5/0/Alt+R) belong to the dump layout, so leave those to it.
   SetBinding(FOCUS_KEY)
   SetBinding(ITEM_KEYS.trinket)
   SetBinding(ITEM_KEYS.racial)
@@ -454,7 +460,7 @@ function Macros.Clear(opts)
   SetBinding(PREP.buff.key)
   SaveBindings(GetCurrentBindingSet())
 
-  say("cleared %d generated macro(s); keys %s/6/7/8/9 unbound, item+prep slots cleared.",
+  say("cleared %d generated macro(s); keys %s/8/9/Alt+Q/Alt+E unbound, item+prep slots cleared.",
     deleted, FOCUS_KEY)
   say("note: interrupt slot V is left empty — " .. "/bb dump" .. " refills it.")
   return "cleared"

@@ -1,19 +1,27 @@
 -- BucketBinds — Dump: the M2 payoff. Given the player's class+spec, walk the
--- seed's 48 placeable buckets, resolve each bucket's ability name to a runtime
+-- seed's 54 placeable buckets, resolve each bucket's ability name to a runtime
 -- spell ID, place it on the fixed action slot the bucket owns, mirror the main
 -- bar onto each form/stance bonus bar, and set the key→slot binding — a one-shot
 -- "here's a complete, ergonomic keybind layout" dump.
 --
--- Bar model (decided 2026-07-10; re-layout 2026-07-14): direct modifier binds
--- on all-visible stock bars, no paging, one modifier layer per physical bar —
--- bar 1 = 12 unmodified keys, bar 2 = Shift, bar 3 = Ctrl, bar 4 = Alt (bar 5
--- is free). Each (bar, slot) maps 1:1 to one absolute action slot + one
--- SetBinding command; the seed carries the explicit key per combo.
+-- Bar model (2026-07-10; re-layouts 2026-07-14, 2026-07-16, LAYOUT v2 2026-07-21):
+-- direct modifier binds on all-visible stock bars, no paging. Bars 1/2/3 are the
+-- unmod / Shift / Ctrl layers over one shared 12-key template
+-- (Q E R F 1 2 3 4 Z X C V), so slot N is the same physical key on each. Bars 4/5
+-- are the two VERTICAL side bars and do not follow that template: their slots 1-3
+-- are the mouse cluster (M3/M4/M5 and the Shift variants, aligned row-wise across
+-- the two columns), with the `5`-`0` row on bar 4 and the Alt band on bar 5.
+-- Each (bar, slot) maps 1:1 to one absolute action slot + one SetBinding command;
+-- the seed carries the explicit key per combo.
+--
+-- Band contract: Rotational 1-4 = Q E R F (most-pressed), Rotational 5-8 = 1 2 3 4
+-- (secondary/AoE/active mitigation), Cooldown 1-4 = SHIFT-QERF (>=45s), Overflow
+-- 1-6 = CTRL-R/F/1-4. See ../../data/layout-v2-proposal.md.
 --
 -- Combat-gated like Snapshot.Apply (defers via ns.QueueAction). Takes an
 -- auto-backup into BucketBindsDB.autobackup first, so /bb undo reverts a dump.
 --
--- The Alt-bar item/trinket/racial macro slots + the 4 Stance buckets carry
+-- The item/trinket/racial macro slots + the 4 Stance buckets carry
 -- placeholder names (no single spell); they're reported as "skipped (M5)",
 -- never silently dropped.
 --
@@ -452,9 +460,9 @@ function Dump.Run(seedKey, opts)
     if macroRep.intrSkipped then
       say("  no interrupt for this spec — slot V left as placed.")
     end
-    say("  items: %d placed%s (trinket→6, racial→%s); prep: flask→8%s, buff→9%s",
+    say("  items: %d placed%s (trinket→8, racial→%s); prep: flask→Alt+Q%s, buff→Alt+E%s",
       macroRep.itemsPlaced, macroRep.itemsCapped > 0 and (WARN .. " (capped!)" .. R) or "",
-      macroRep.racialSkipped and (WARN .. "skipped" .. R) or "7",
+      macroRep.racialSkipped and (WARN .. "skipped" .. R) or "9",
       macroRep.flaskPlaced and "" or (WARN .. " (not placed)" .. R),
       macroRep.buffSkipped and (WARN .. " skipped" .. R)
         or (macroRep.buffPlaced and "" or (WARN .. " (not placed)" .. R)))
