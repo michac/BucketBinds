@@ -1607,14 +1607,11 @@ ns.SEED = {
       ["Buff"] = "Create Healthstone",
     },
     ["Warlock/Demonology"] = {
-      ["Rotational 1"] = "Shadow Bolt",
-      ["Rotational 2"] = "Call Dreadstalkers",
-      ["Rotational 3"] = "Hand of Gul'dan",
-      ["Rotational 4"] = "Demonbolt",
-      ["Rotational 5"] = "Implosion",
-      ["Rotational 6"] = "Summon Demonic Tyrant",
-      ["Rotational 7"] = "Summon Doomguard",
-      ["Rotational 8"] = "Grimoire: Fel Ravager",
+      ["Rotational 1"] = "Hand of Gul'dan",
+      ["Rotational 2"] = "Demonbolt",
+      ["Rotational 3"] = "Shadow Bolt",
+      ["Rotational 4"] = "Call Dreadstalkers",
+      ["Cooldown 1"] = "Summon Demonic Tyrant",
       ["Class 2 (CC)"] = "Curse of Tongues",
       ["Class 3 (Tag)"] = "Curse of Weakness",
       ["Class 4 (Special)"] = "Blight of Tongues",
@@ -1684,6 +1681,12 @@ ns.SEED = {
       ["Racial Ability"] = "Racial Ability",
       ["Free"] = "Free",
       ["Buff"] = "Create Healthstone",
+    },
+  },
+  floats = {
+    ["Warlock/Demonology"] = {
+      Rotational = { "Power Siphon", "Implosion" },
+      Cooldown = { "Dominion of Argus", "Summon Doomguard", "Grimoire: Fel Ravager", "Grimoire: Imp Lord" },
     },
   },
   excludeSpells = {

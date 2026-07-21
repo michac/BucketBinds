@@ -159,6 +159,17 @@ Run after deploying a build (`ghaddons update michac/BucketBinds` → `/reload`)
 7. **`--nobind`**: change one keybind by hand, then `/bb dump --nobind` → the
    abilities re-place on the bars but your changed bind is **untouched** and the
    report says "bindings left unchanged (--nobind)".
+8. **Floating buckets** (v0.11.0 — spec with a `floats` block; **Demonology** is the
+   only one today): `/bb dump` → the report line reads `N/M abilities placed
+   (K floated), …`. The fixed core lands on `Q E R F` + `SHIFT-Q` (Hand of Gul'dan,
+   Demonbolt, Shadow Bolt, Call Dreadstalkers, Summon Demonic Tyrant); the talented
+   floats fill the **empty** Rotational 5–8 / Cooldown 2–4 slots in list order
+   (Power Siphon *or* Implosion — the choice node means one; Dominion of Argus,
+   Summon Doomguard, and whichever Grimoire is talented). An untalented float is
+   **not** listed as `unresolved` — it's expected. `/bb diagnostics` reports a
+   `floats: R resolved / U untalented` line. **The churn test (do not skip):**
+   respec the Grimoire choice (Fel Ravager ↔ Imp Lord), `/bb dump` again → only the
+   one Grimoire slot changes occupant; nothing before it in the Cooldown band moves.
 
 ## In-game smoke test (M3 — spill) + /bb test
 

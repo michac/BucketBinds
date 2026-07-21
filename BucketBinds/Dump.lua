@@ -105,6 +105,18 @@ local PLACEHOLDER = {
   ["Trinket Macro"] = true,
 }
 
+-- Bands that carry a `floats` candidate list (ns.SEED.floats[seedKey][band]).
+-- A float is a band-level candidate that fills the band's EMPTY (no fixed
+-- assignment) slots at dump time, in list order, keeping only names that resolve
+-- (= talented). Only these three bands float in v1 — the other numbered families
+-- (Self-Heal, Class, PvP) are stable role slots. A bucket category like
+-- "Rotational 5" splits into (band="Rotational", ordinal=5); "Self-Heal 1" and
+-- "Class 2 (CC)" don't match the `^%a+ %d+$` shape, so they never float.
+local FLOAT_BANDS = { Rotational = true, Cooldown = true, Overflow = true }
+-- Fill order: Rotational and Cooldown first; anything that doesn't fit its own
+-- band spills into Overflow (after Overflow's own floats), then to /bb spill.
+local FLOAT_ORDER = { "Rotational", "Cooldown", "Overflow" }
+
 -- keybind notation → SetBinding key string. One optional modifier
 -- (S/C/A → SHIFT/CTRL/ALT) + one digit/letter/mouse-token. "S1"→"SHIFT-1",
 -- "CQ"→"CTRL-Q", "AV"→"ALT-V", "Z"→"Z". Mouse tokens expand: "M4"→"BUTTON4",
@@ -334,7 +346,7 @@ function Dump.Run(seedKey, opts)
   -- opts.noBind (from `/bb dump ... --nobind`): place abilities on the bars but
   -- leave the player's existing keybindings untouched — no SetBinding, no
   -- SaveBindings. Placement, form-mirror, and the auto-backup/undo still apply.
-  local placed, applicable, bound, formMirrored = 0, 0, 0, 0
+  local placed, applicable, bound, formMirrored, floated = 0, 0, 0, 0, 0
   local unresolved, skippedM5, bar1IDs = {}, {}, {}
 
   for _, b in ipairs(ns.SEED.buckets) do
@@ -392,6 +404,76 @@ function Dump.Run(seedKey, opts)
     end
   end
 
+  -- 2b) Floating buckets. A band gets a priority-ordered candidate list; the ones
+  --     that resolve (= talented) fill that band's empty slots — the slots with no
+  --     FIXED assignment. Keys already bound to those slots above (bind is by slot,
+  --     not ability), so a float landing in slot N is live on N's key immediately.
+  --     Anchors stay empty: a fixed slot whose ability didn't resolve is NOT
+  --     back-filled — Q E R F must not change occupant based on talents. Leftovers
+  --     spill Rotational/Cooldown → Overflow → reported (never silently dropped).
+  local floatLeftovers = {}
+  local floats = ns.SEED.floats and ns.SEED.floats[seedKey]
+  if floats then
+    -- Ordered, float-eligible (non-fixed) slots per band, in ordinal order.
+    local bandSlots = {}
+    for _, b in ipairs(ns.SEED.buckets) do
+      if b.bar and BAR_MAP[b.bar] then
+        local band, ord = b.category:match("^(%a+) (%d+)$")
+        if band and FLOAT_BANDS[band] and spec[b.category] == nil then
+          bandSlots[band] = bandSlots[band] or {}
+          bandSlots[band][#bandSlots[band] + 1] = {
+            absSlot = BAR_MAP[b.bar].base + (b.slot - 1),
+            bar = b.bar, slot = b.slot, ord = tonumber(ord),
+          }
+        end
+      end
+    end
+    for _, slots in pairs(bandSlots) do
+      table.sort(slots, function(x, y) return x.ord < y.ord end)
+    end
+
+    -- Resolve a name list to a queue of {id, name}, dropping untalented names.
+    local function resolveQueue(names)
+      local q = {}
+      for _, name in ipairs(names or {}) do
+        local id = resolveSpellID(name, sbMap)
+        if id then q[#q + 1] = { id = id, name = name } end
+      end
+      return q
+    end
+
+    -- Fill a band's empty slots from a queue; return the leftover queue tail.
+    local function fillBand(band, queue)
+      local slots, qi = bandSlots[band] or {}, 1
+      for _, s in ipairs(slots) do
+        if qi > #queue then break end
+        local f = queue[qi]
+        if placeSpell(f.id, s.absSlot) then
+          floated = floated + 1
+          if s.bar == 1 then
+            bar1IDs[s.slot] = f.id
+            if formOffsets then
+              for _, off in ipairs(formOffsets) do
+                placeSpell(f.id, 1 + (5 + off) * 12 + (s.slot - 1))
+              end
+            end
+          end
+        end
+        qi = qi + 1
+      end
+      local left = {}
+      for i = qi, #queue do left[#left + 1] = queue[i] end
+      return left
+    end
+
+    local rotLeft = fillBand("Rotational", resolveQueue(floats.Rotational))
+    local cdLeft = fillBand("Cooldown", resolveQueue(floats.Cooldown))
+    local ovQueue = resolveQueue(floats.Overflow)
+    for _, f in ipairs(rotLeft) do ovQueue[#ovQueue + 1] = f end
+    for _, f in ipairs(cdLeft) do ovQueue[#ovQueue + 1] = f end
+    floatLeftovers = fillBand("Overflow", ovQueue)
+  end
+
   -- Contextual bar (pet OR stance) → ALT+1..8. These aren't action slots — they
   -- are their own binding namespaces (BONUSACTIONBUTTON / SHAPESHIFTBUTTON) that
   -- the game auto-populates, so we only bind, never place. A class has a pet bar
@@ -438,11 +520,18 @@ function Dump.Run(seedKey, opts)
   BucketBindsDB.lastDump = { classToken = classToken, bar1 = bar1IDs }
 
   -- 3) Report — never silent.
-  say("dumped %s — %d/%d abilities placed, %s.", seedKey, placed, applicable,
+  say("dumped %s — %d/%d abilities placed%s, %s.", seedKey, placed, applicable,
+    floated > 0 and (" (" .. floated .. " floated)") or "",
     opts.noBind and "bindings left unchanged (--nobind)"
       or (bound .. " bound"))
   if formOffsets and formMirrored > 0 then
     say("  (%d form-mirrored)", formMirrored)
+  end
+  if #floatLeftovers > 0 then
+    local names = {}
+    for _, f in ipairs(floatLeftovers) do names[#names + 1] = f.name end
+    say(WARN .. "floats past Overflow (%d) — no slot left; use /bb spill or /bb ring: %s" .. R,
+      #floatLeftovers, table.concat(names, ", "))
   end
   if ctxMsg then say("  %s", ctxMsg) end
   if #unresolved > 0 then
@@ -865,10 +954,12 @@ function Dump.Diagnostics(opts)
       castableTotal = #castable, seedPlaceable = 0, resolvedKnown = 0,
       resolvedUnknown = 0, unresolved = 0, placeholders = 0,
       onBar = 0, placementIssues = 0, unmapped = 0,
+      floatsResolved = 0, floatsUnresolved = 0,
     },
     buckets = {},
     unmapped = {},
     placementIssues = {},
+    floats = {},
   }
   local S = report.summary
   local seedMapped = {} -- normID → true for every resolvable bucket (known or not)
@@ -971,6 +1062,30 @@ function Dump.Diagnostics(opts)
     end
   end
 
+  -- Floats: a band candidate that resolves is "resolved" (talented, will be
+  -- placed); one that doesn't is "unresolved" — EXPECTED (untalented), never a
+  -- seed bug, so it's tracked in its own section and NOT counted as `unresolved`.
+  -- A resolved float's normID joins seedMapped so it isn't double-reported as a
+  -- gap. Uses the same FLOAT_BANDS/FLOAT_ORDER model as Dump.Run.
+  local floats = spec and ns.SEED.floats and ns.SEED.floats[seedKey]
+  if floats then
+    for _, band in ipairs(FLOAT_ORDER) do
+      for _, name in ipairs(floats[band] or {}) do
+        local id = resolveSpellID(name, sbMap)
+        local nk = id and normID(id) or nil
+        if id then seedMapped[nk] = true end
+        report.floats[#report.floats + 1] = {
+          band = band, name = name, resolved = id ~= nil, spellID = id, normID = nk,
+        }
+        if id then
+          S.floatsResolved = S.floatsResolved + 1
+        else
+          S.floatsUnresolved = S.floatsUnresolved + 1
+        end
+      end
+    end
+  end
+
   -- Unmapped ("the gaps"): castable spells no resolvable seed bucket covers,
   -- deduped by normID, sorted by name. Same pattern as Dump.Spill but
   -- subtracting the seed-model set instead of the current bar state (so like
@@ -1001,6 +1116,10 @@ function Dump.Diagnostics(opts)
     say("diagnostics %s / %s — %d castable; seed: %d known / %d untalented / %d unresolved / %d placeholder; %d on-bar, %d placement issue(s), %d unmapped.",
       charKey, specName, S.castableTotal, S.resolvedKnown, S.resolvedUnknown,
       S.unresolved, S.placeholders, S.onBar, S.placementIssues, S.unmapped)
+    if S.floatsResolved + S.floatsUnresolved > 0 then
+      say("  floats: %d resolved (will place) / %d untalented (expected).",
+        S.floatsResolved, S.floatsUnresolved)
+    end
   end
   if S.unresolved > 0 then
     local names = {}
