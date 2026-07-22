@@ -96,6 +96,13 @@ local function cmdDump(rest)
   ns.Dump.Run(key, opts)
 end
 
+local function cmdClear()
+  if not ns.Dump or not ns.Dump.Clear then
+    emit(ERR .. "BucketBinds" .. R .. ": dump module failed to load."); return
+  end
+  ns.Dump.Clear()
+end
+
 local function cmdSpill(rest)
   if not ns.Dump or not ns.Dump.Spill then
     emit(ERR .. "BucketBinds" .. R .. ": dump module failed to load."); return
@@ -203,8 +210,11 @@ local cmdHelp
 
 ns.Commands = {
   { name = "dump", args = "[<Class>] <Spec> [--nobind]",
-    desc = "Place + bind your spec's abilities across the bars (auto-backs-up)",
+    desc = "Place + bind your spec's abilities (non-destructive; auto-backs-up)",
     handler = cmdDump, complete = specKeys },
+  { name = "clear",
+    desc = "Wipe every managed slot — a full reset (keybinds kept; auto-backs-up)",
+    handler = cmdClear },
   { name = "spill", args = "[clear]",
     desc = "Drop every learned-but-unplaced ability onto the reserve bars",
     handler = cmdSpill, complete = clearOnly },

@@ -328,21 +328,14 @@ function Dump.Run(seedKey, opts)
   local formOffsets = FORM_BONUS_BARS[classToken]
   local sbMap = buildSpellbookMap()
 
-  -- 1) Enumerate the managed slots (40 base + mirrored bar-1 form slots) and
-  --    clear them so stale content from a previous dump / the player doesn't
-  --    linger where this spec places nothing.
-  for _, b in ipairs(ns.SEED.buckets) do
-    if b.bar and BAR_MAP[b.bar] then
-      clearSlot(BAR_MAP[b.bar].base + (b.slot - 1))
-      if b.bar == 1 and formOffsets then
-        for _, off in ipairs(formOffsets) do
-          clearSlot(1 + (5 + off) * 12 + (b.slot - 1))
-        end
-      end
-    end
-  end
+  -- Dump is NON-DESTRUCTIVE: it only writes the slots this spec actually fills
+  -- (fixed core + resolved floats), then binds keys. It no longer pre-clears the
+  -- managed region, so anything you park on a slot the seed leaves empty (e.g. a
+  -- mount on an always-unused Self-Heal slot) survives a dump. The trade-off:
+  -- after a respec that DROPS a float, that float can linger until it's overwritten
+  -- or you run a full reset. `/bb clear` (Dump.Clear) is that reset.
 
-  -- 2) Place + bind each spell bucket; mirror bar 1 onto the form bars.
+  -- Place + bind each spell bucket; mirror bar 1 onto the form bars.
   -- opts.noBind (from `/bb dump ... --nobind`): place abilities on the bars but
   -- leave the player's existing keybindings untouched — no SetBinding, no
   -- SaveBindings. Placement, form-mirror, and the auto-backup/undo still apply.
@@ -644,6 +637,43 @@ local function isExcluded(id, base, name)
   local ex = ns.SEED and ns.SEED.excludeSpells
   if not ex then return false end
   return (ex[id] or (base and ex[base]) or (name and ex[name])) and true or false
+end
+
+-- /bb clear. Wipe the CONTENT of every managed slot — every action button the
+-- seed binds a key to — as a full reset (e.g. on a fresh character, or to shed
+-- stale abilities a respec left behind). Keybindings are left intact, so a
+-- follow-up /bb dump re-fills the now-empty layout on the same keys. This is the
+-- one command that clears; a plain /bb dump no longer does. Mirrors bar 1 onto
+-- the form/stance bars, exactly like the dump. Auto-backs-up first, so /bb undo
+-- reverts it. Combat-gated (deferred until you leave lockdown).
+function Dump.Clear()
+  if InCombatLockdown() then
+    if ns.QueueAction then ns.QueueAction(function() Dump.Clear() end) end
+    say("in combat — clear deferred until you leave combat.")
+    return "deferred"
+  end
+
+  -- Auto-backup so /bb undo reverts the reset (same contract as dump/restore).
+  BucketBindsDB.autobackup = ns.Snapshot.Capture()
+
+  local _, classToken = UnitClass("player")
+  local formOffsets = FORM_BONUS_BARS[classToken]
+  local n = 0
+  for _, b in ipairs(ns.SEED.buckets) do
+    if b.bar and BAR_MAP[b.bar] then
+      local absSlot = BAR_MAP[b.bar].base + (b.slot - 1)
+      if GetActionInfo(absSlot) then clearSlot(absSlot); n = n + 1 end
+      if b.bar == 1 and formOffsets then
+        for _, off in ipairs(formOffsets) do
+          local mirror = 1 + (5 + off) * 12 + (b.slot - 1)
+          if GetActionInfo(mirror) then clearSlot(mirror); n = n + 1 end
+        end
+      end
+    end
+  end
+
+  say("cleared %d managed slot(s); keybinds kept. /bb dump re-fills, /bb undo reverts.", n)
+  return "cleared"
 end
 
 -- /bb spill [clear]. Enumerate the active spellbook, subtract what's already on
